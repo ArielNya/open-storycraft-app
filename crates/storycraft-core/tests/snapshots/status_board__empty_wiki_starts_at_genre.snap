@@ -1,0 +1,10 @@
+---
+source: crates/storycraft-core/tests/status_board.rs
+expression: snapshot_text(&board)
+---
+Project: empty-wiki
+Mode: resume
+Chapter: 1
+Have: genre no / audience no / theme no / synopsis no / style no / characters partial / world partial / outline no / scenes no / voice no / psych no / chapters no
+Missing required for next skill: genre
+Next: fiction-genre — Wiki/Style/genre.md is missing or has no genre field

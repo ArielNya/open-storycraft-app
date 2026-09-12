@@ -1,0 +1,10 @@
+---
+source: crates/storycraft-core/tests/status_board.rs
+expression: snapshot_text(&board)
+---
+Project: half-spine
+Mode: resume
+Chapter: 1
+Have: genre yes / audience yes / theme yes / synopsis yes / style partial / characters yes / world no / outline no / scenes no / voice no / psych no / chapters no
+Missing required for next skill: style
+Next: fiction-style — Wiki/Style/style_guide.md is missing or empty

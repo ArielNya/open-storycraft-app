@@ -1,0 +1,45 @@
+{
+  "title": "Review Guide: [Story Title]",
+  "genre": "Genre and subgenre",
+  "pov": "POV mode and character names",
+  "tone": "Tone descriptor",
+  "forbidden_phrases": ["phrase"],
+  "forbidden_words": [{ "word": "word", "note": "why forbidden" }],
+  "crutch_words": [{ "word": "word", "note": "rule for use" }],
+  "punctuation": {
+    "em_dash": "Rule for em dash use",
+    "fragments": "Rule for sentence fragments",
+    "semicolons": "Rule for semicolons",
+    "ellipsis": "Rule for ellipsis"
+  },
+  "paradiastole_rule": "Rule against not-X-but-Y constructions",
+  "triadic_list_rule": "Rule against three-beat lists",
+  "negation_hedging_rule": {
+    "rule": "Rule against defining something by what it isn't instead of what it is",
+    "patterns_to_flag": ["example negative-construction sentence -> what should replace it"],
+    "fix": "How to fix: replace with the concrete positive",
+    "exception": "When deliberate negation for irony/contrast is fine"
+  },
+  "dialogue_tags": {
+    "use": ["allowed tags"],
+    "never": ["forbidden tags"],
+    "placement": "Placement rule"
+  },
+  "voice_personification_rule": "Rule against giving abstract entities human behavior",
+  "over_description_rule": "Rule against ASMR / decorative sensory stacking",
+  "telling_verbs": [{ "word": "verb", "note": "how to fix" }],
+  "simile_rule": {
+    "max_per_chapter": 3,
+    "character_filters": {}
+  },
+  "repetition": {
+    "word_level": "Rule",
+    "body_part_rule": "Rule",
+    "erotic_scenes": "Rule"
+  },
+  "sentence_opening_rule": "Rule against repeated sentence openings",
+  "robotic_words": [{ "word": "word", "problem": "register problem" }],
+  "voice_checks": {},
+  "thematic_checklist": ["checklist item"],
+  "quick_checklist": ["checklist item"]
+}

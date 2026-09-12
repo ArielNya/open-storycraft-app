@@ -1,0 +1,10 @@
+---
+source: crates/storycraft-core/tests/status_board.rs
+expression: snapshot_text(&board)
+---
+Project: planning-done
+Mode: resume
+Chapter: 1
+Have: genre yes / audience yes / theme yes / synopsis yes / style yes / characters yes / world no / outline yes / scenes yes / voice yes / psych yes / chapters no
+Missing required for next skill: chapters
+Next: fiction-writechapter — no chapter prose file for chapter 1

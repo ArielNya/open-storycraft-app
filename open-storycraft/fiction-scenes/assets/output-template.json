@@ -1,0 +1,36 @@
+{
+  "chapter_number": "[Integer or decimal/interlude identifier matching the project]",
+  "chapter_title": "[Authoritative chapter title]",
+  "scenes": [
+    {
+      "scene_id": "[Project scene-ID convention; preserve decimal/interlude identity]",
+      "pov": "[Character name — match the project's authoritative character source]",
+      "summary": "[Concise causal skeleton: action, pressure, turn, choice, and consequence. Long enough to draft without guessing; no quota padding.]",
+      "emotional_beat": "[Interior causality not duplicated from the summary: surface presentation, underlying pressure, and where the POV lands.]",
+      "characters": [
+        "[POV character name]",
+        "[Other character name]"
+      ],
+      "location": "[Location name — match the project's authoritative source when one exists]",
+      "world_elements": [
+        "[Organization, system, or event name — match the project's authoritative world source]"
+      ],
+      "items": [],
+      "hook": "[The specific final action, line, image, decision, or emotional aftereffect that creates forward pull or resonance.]"
+    },
+    {
+      "scene_id": "[Next scene ID under the project's convention]",
+      "pov": "[Character name]",
+      "summary": "[Concise causal scene skeleton.]",
+      "emotional_beat": "[Interior movement not already covered by the summary.]",
+      "characters": [
+        "[Character name]"
+      ],
+      "location": "[Location name]",
+      "world_elements": [],
+      "items": [],
+      "hook": "[Specific final beat.]",
+      "explicit_notes": "[Optional. Include only for scenes with sexual or explicitly intimate content. Describe what happens, how it is written, and what it is doing emotionally. Omit this field entirely if not applicable.]"
+    }
+  ]
+}

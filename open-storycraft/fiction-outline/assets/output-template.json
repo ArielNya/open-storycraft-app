@@ -1,0 +1,30 @@
+{
+  "title": "[Working title]",
+  "note": "[Global note: how POV is assigned, structural logic, what the writer needs to know before reading individual chapters]",
+  "premise": "[The concrete unstable situation copied from the synopsis]",
+  "central_question": "[The dramatic question copied from the synopsis]",
+  "reader_promise": "[The spoiler-light experience and satisfaction owed]",
+  "story_answer": "[The spoiler-containing answer demonstrated by the ending]",
+  "chapters": [
+    {
+      "chapter_number": 1,
+      "title": "[Chapter title]",
+      "what_must_happen": "[Directive prose telling the writer exactly what to write. Who is present. What occurs. What the reader must see and feel — the specific images, exchanges, and beats that make this chapter work. How the chapter ends. Present tense. Imperative. No passive summary — active direction. 3-6 sentences.]",
+      "premise_movement": "[How the unstable situation, options, or cost changes]",
+      "question_pressure": "[How action and choice pressure the central question]",
+      "promise_delivery": "[The concrete reader experience delivered here]",
+      "trope_obligations": ["trope_id: setup - concrete action"],
+      "ends_with": "[State of play at close: what each character knows, has, wants. What is unresolved and carries forward. 1-2 sentences.]"
+    },
+    {
+      "chapter_number": 2,
+      "title": "[Chapter title]",
+      "what_must_happen": "[Directive prose...]",
+      "premise_movement": "[How the unstable situation, options, or cost changes]",
+      "question_pressure": "[How action and choice pressure the central question]",
+      "promise_delivery": "[The concrete reader experience delivered here]",
+      "trope_obligations": ["trope_id: development - concrete action"],
+      "ends_with": "[State of play...]"
+    }
+  ]
+}

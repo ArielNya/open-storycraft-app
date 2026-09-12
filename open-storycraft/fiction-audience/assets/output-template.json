@@ -1,0 +1,21 @@
+{
+  "age_group": "[Children | Middle Grade | Young Adult | New Adult | Adult]",
+  "typical_reader_age": "[Age range, e.g. '22+' or '14-18']",
+  "protagonist_ages": {
+    "heroine": 0,
+    "hero": 0
+  },
+  "tone_variant": "[Tone descriptor, e.g. 'Witty / Dark']",
+  "content_boundaries": {
+    "violence": { "level": 0, "note": "[What kind of violence, how present, what role it plays — 20 words max]" },
+    "sexual_content": { "level": 0, "note": "[Explicitness level and how it functions — 20 words max]" },
+    "language": { "level": 0, "note": "[Register and profanity norms — 20 words max]" },
+    "darkness": { "level": 0, "note": "[How dark the story gets and how that darkness functions — 20 words max]" }
+  },
+  "structural_norms": {
+    "chapter_length_words": [0, 0],
+    "total_word_count": [0, 0],
+    "pov_structure": "[POV mode, e.g. 'Dual first person past, alternating by chapter']",
+    "series_potential": "[Standalone | Standalone with sequel hook | Series]"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "_instructions": "All world entries live in a single World.json file under a 'world' array. Every entry requires name, tag, and type. All other fields are type-dependent.",
+  "world": [
+    {
+      "_type": "Location",
+      "name": "Location name",
+      "tag": "One-line summary: what it is and why it matters to the story",
+      "type": "Location",
+      "subtype": "City | District | Casino | Brothel | Private_Club | Yacht | Capital City | Distant Kingdom | etc.",
+      "physical_description": "Layout, materials, who uses it, its function in the story",
+      "sensory_description": "Dominant sensory impression: smell, sound, light quality, texture",
+      "_optional_location": "also_known_as, owner, social_rules, prevents, forces, enables"
+    },
+    {
+      "_type": "Organization",
+      "name": "Organization name",
+      "tag": "One-line summary: what it is and why it matters",
+      "type": "Organization",
+      "description": "What it is, what it does, who runs it, what it wants",
+      "_optional_org": "prevents, forces, enables — each a single present-tense sentence about scene-level consequences"
+    },
+    {
+      "_type": "System",
+      "name": "System name",
+      "tag": "One-line summary",
+      "type": "System",
+      "subtype": "Social_Norm | Household | Economy | Culture | etc.",
+      "_note": "Fields vary by subtype. Use the fields that apply: physical_description, sensory_description, social_rules, members, rules, slice_of_life_texture, currency, key_industries, trade_system, traditions, language_dialects, arts_entertainment"
+    },
+    {
+      "_type": "Event",
+      "name": "Event name",
+      "tag": "One-line summary: when it happened and why it matters",
+      "type": "Event",
+      "when": "When this happened relative to the story",
+      "what": "What happened — specific and concrete",
+      "implications": "What this means for the characters going forward"
+    }
+  ]
+}

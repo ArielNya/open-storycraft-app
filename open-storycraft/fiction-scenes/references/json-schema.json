@@ -1,0 +1,26 @@
+{
+  "_instructions": "Full structured mode only. Follow the project's established destination and downstream generator. The scenes array normally holds 1-3 discrete scene objects; use more only when real scene breaks require it. Every populated field should add information the writing prompt actually needs.",
+  "_chapter_fields": {
+    "chapter_number": "Integer or string, including decimal/interlude identifiers, matching the project's outline and filename convention.",
+    "chapter_title": "String. Match the authoritative outline or assigned chapter directive.",
+    "scenes": "Array of scene objects. Usually 1-3; split only at real changes in time, location, power, POV, or emotional register."
+  },
+  "_scene_fields": {
+    "scene_id": "String. Follow the project's scene-ID convention. If none exists, use an unambiguous chapter identifier plus scene sequence, preserving decimal/interlude chapter identity.",
+    "pov": "String. Character name exactly as it appears in the project's authoritative character source.",
+    "summary": "String. A concise narrative skeleton specific enough to draft without guessing. Walk through the causal action, the turn, the POV character's choice, and the consequence. Do not pad to a word quota or summarize themes.",
+    "emotional_beat": "String. Add the internal causality not already present in the summary: surface presentation, underlying pressure, and where the POV lands. Do not paraphrase the event sequence or pad to a quota.",
+    "characters": "Array of strings. Every character present in the scene, including the POV character. Names must match the project's authoritative character source when machine resolution depends on exact spelling.",
+    "location": "String. Match the project's authoritative location source when one exists; preserve a clearly labeled provisional location when the user has established it but no entity record exists.",
+    "world_elements": "Array of strings. Organizations, systems, historical events, or items active in the scene. Match the project's authoritative world source when machine resolution depends on exact spelling.",
+    "items": "Array of strings. Physical objects that appear in the scene and carry story weight. Usually empty unless an item is plot-significant.",
+    "hook": "String. The exact last moment of the scene. Use a concrete action, line, image, decision, or emotional aftereffect that creates forward pull or resonance. It may close the immediate action while leaving consequences alive; do not pad to a quota.",
+    "explicit_notes": "String. Optional. Include ONLY when the scene contains sexual or explicitly intimate content (content_boundaries sexual_content level 3+). Describe specifically what happens, how it is rendered, what the emotional function of the explicit content is, and any constraints on how it is written. Do not sanitize or euphemize — state plainly what the scene does."
+  },
+  "_quality_bar": {
+    "summary_test": "Can a writer read the summary and draft the intended scene without inventing its causal action or turn? If not, it lacks specificity.",
+    "emotional_beat_test": "Does the emotional_beat distinguish between surface state and interior state? Does it avoid generic labels ('nervous', 'excited') in favor of texture?",
+    "hook_test": "Does the ending create forward pull or meaningful aftereffect rather than merely summarize what happened?",
+    "scene_count": "Use the number of scenes created by real breaks. One sustained scene can carry a chapter; four or more should trigger a scope check, not an automatic rejection."
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "world": [
+    {
+      "name": "[Location Name]",
+      "tag": "[One-line summary: what it is and its role in the story]",
+      "type": "Location",
+      "subtype": "[City | District | Casino | Brothel | Private_Club | Yacht | Capital City | Distant Kingdom | etc.]",
+      "physical_description": "[Layout, materials, who occupies it, what narrative function it serves]",
+      "sensory_description": "[Dominant sensory impression: smell, sound, light quality, texture — 1-2 sentences]"
+    },
+    {
+      "name": "[Organization Name]",
+      "tag": "[One-line summary]",
+      "type": "Organization",
+      "description": "[What it is, what it does, who runs it, what it wants]",
+      "prevents": "[What this organization prevents characters from doing — one present-tense sentence]",
+      "forces": "[What this organization forces characters to account for — one present-tense sentence]",
+      "enables": "[What this organization grants access to — one present-tense sentence]"
+    },
+    {
+      "name": "[Event Name]",
+      "tag": "[One-line: when it happened and why it matters]",
+      "type": "Event",
+      "when": "[When this happened relative to the story]",
+      "what": "[What happened — specific and concrete]",
+      "implications": "[What this means for the characters going forward]"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "central_question": "[The question the story asks through its events. Stated as a question. The reader should feel it without it ever being spoken aloud.]",
+  "tone": "[One paragraph: what the surface emotional register is, what is warm or witty about it, what darker currents run underneath, how the story balances the two. Specific to this story, not a genre description.]",
+  "motifs": [
+    {
+      "name": "[Short concrete name — 'The Open Water', 'The Letter', 'Her Real Name', etc.]",
+      "type": "[Visual | Verbal | Sensory | Structural | Recurring situation]",
+      "what_it_is": "[What it literally is in the story. What it tracks thematically. What it means by the end. 2-3 sentences max.]"
+    }
+  ]
+}

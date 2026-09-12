@@ -1,0 +1,73 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/storycraft-core",
+    "crates/storycraft-cli",
+    "crates/storycraft-llm",
+    "crates/storycraft-auth",
+]
+default-members = ["crates/storycraft-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Open Storycraft — local writing studio for the Storycraft skill library"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+insta = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+storycraft-auth = { path = "crates/storycraft-auth" }
+storycraft-core = { path = "crates/storycraft-core" }
+storycraft-llm = { path = "crates/storycraft-llm" }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt", "time", "sync"] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+walkdir = "2"
+wiremock = "0.6"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+doc_markdown = "warn"
+needless_pass_by_value = "warn"
+redundant_clone = "warn"
+use_self = "warn"
+redundant_else = "warn"
+missing_errors_doc = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 3

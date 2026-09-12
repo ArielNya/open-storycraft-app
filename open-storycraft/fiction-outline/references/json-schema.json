@@ -1,0 +1,20 @@
+{
+  "title": "Working title",
+  "note": "Any global note about how to read or use this outline — POV assignment logic, structural conventions, anything a writer needs before opening a chapter entry",
+  "premise": "The concrete unstable situation copied verbatim from the synopsis",
+  "central_question": "The dramatic question copied verbatim from the synopsis",
+  "reader_promise": "The spoiler-light experience and satisfaction copied verbatim from the synopsis",
+  "story_answer": "The spoiler-containing answer copied verbatim from the synopsis",
+  "chapters": [
+    {
+      "chapter_number": 1,
+      "title": "Chapter title",
+      "what_must_happen": "Directive prose telling the writer exactly what to write: who is in the scene, what occurs, what the reader must see and feel, how it ends. Present tense. Specific and imperative. This is a production instruction, not a description.",
+      "premise_movement": "How this chapter changes the unstable situation, the protagonist's options, or the cost of pursuing the premise",
+      "question_pressure": "How this chapter poses, complicates, reframes, narrows, or answers the central question through action and choice",
+      "promise_delivery": "The concrete part of the reader experience or satisfaction delivered on the page in this chapter",
+      "trope_obligations": ["trope_id: setup | development | payoff | texture | subversion - concrete chapter action"],
+      "ends_with": "The exact state of play at the chapter's close — what each relevant character knows, has, and wants. What is unresolved. 1-2 sentences."
+    }
+  ]
+}

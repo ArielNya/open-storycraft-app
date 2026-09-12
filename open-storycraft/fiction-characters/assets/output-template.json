@@ -1,0 +1,46 @@
+{
+  "characters": [
+    {
+      "name": "[Full name]",
+      "role": "protagonist",
+      "age": 0,
+      "pronouns": "[she/her | he/him | they/them]",
+      "physical_description": "[Appearance and bearing. What a stranger registers first. Specific enough to be a writing tool. 2-4 sentences.]",
+      "personality": "[Who they are: temperament, social intelligence, wounds, humor, what makes them dangerous or compelling. 3-5 sentences.]",
+      "dialogue_style": "[First person [tense]. How they sound: register, wit level, what they reach for under pressure, what they refuse to say directly. 2-4 sentences.]",
+      "backstory": "[What happened before page one that shapes every choice they make. 3-5 sentences.]",
+      "want": "[What they consciously pursue — specific and external]",
+      "need": "[What they actually lack — often the opposite of their armor]",
+      "flaw": "[The specific way their armor costs them things they want]",
+      "chemistry_with_protagonist": "[What the other protagonist does that gets through. What they find impossible to dismiss. 3-5 sentences.]",
+      "romantic_obstacles": "[What stands between them — structural, informational, emotional. Specific conditions that must change for the story to resolve. 2-4 sentences.]",
+      "shared_history": "[What they have before the story starts, or what is built in the first act that makes everything after feel inevitable]",
+      "internal_monologue": "[How their POV voice sounds: what it notices first, what it jokes about, what it goes quiet about, where sensation lives before the mind catches up. This is a writing instruction. 4-6 sentences.]",
+      "relationship_dynamics": "[Per named relationship: how they read this person, what they want from them, what they won't say. 1-3 sentences per relationship.]"
+    },
+    {
+      "name": "[Full name]",
+      "role": "antagonist",
+      "age": 0,
+      "pronouns": "[he/him | she/her | they/them]",
+      "physical_description": "[Appearance and bearing. How they carry power.]",
+      "dialogue_style": "[Register and style — how they sound, what they never say directly]",
+      "motivations": "[What they actually want and why it makes sense to them. Not just evil — specific and coherent. 2-3 sentences.]",
+      "methods": "[How they operate: the specific tools, the administrative calm, what they use as leverage]",
+      "power_resources": "[What they control: money, information, relationships, mutual embarrassment, access]",
+      "relationship_to_protagonist": "[How they relate to each protagonist and what each one represents in their plans. 2-3 sentences.]"
+    },
+    {
+      "name": "[Full name]",
+      "role": "supporting",
+      "age": 0,
+      "pronouns": "[he/him | she/her | they/them]",
+      "physical_description": "[1-2 sentences: the physical fact the writer needs]",
+      "personality": "[Who they are in the story's world — 2-3 sentences]",
+      "dialogue_style": "[Register — 1-2 sentences]",
+      "skills_or_resources": "[What they bring: access, information, money, social capital]",
+      "role_in_story": "[Narrative function: what they enable, block, or reveal. What the story cannot do without them.]",
+      "relationship_to_protagonist": "[How they relate to the protagonists — what they see, what they offer, what they miss]"
+    }
+  ]
+}

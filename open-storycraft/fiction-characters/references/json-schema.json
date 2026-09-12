@@ -1,0 +1,50 @@
+{
+  "_instructions": "All characters in a single characters array. Fields vary by role. Required for all: name, role, age, pronouns, physical_description, dialogue_style. See role-specific notes below.",
+  "characters": [
+    {
+      "_role": "protagonist",
+      "name": "Full name",
+      "role": "protagonist",
+      "age": 0,
+      "pronouns": "she/her | he/him | they/them",
+      "physical_description": "Appearance and bearing — specific enough to be a writing tool, not a catalog",
+      "personality": "Who they are: temperament, social ease, wounds, comedy, what makes them dangerous or compelling",
+      "dialogue_style": "First person [tense]. How they sound: register, wit level, what they reach for under pressure, what they avoid saying directly",
+      "backstory": "What happened before page one that shapes every choice they make in the story",
+      "want": "What they consciously pursue — specific and external",
+      "need": "What they actually lack — often the opposite of their armor",
+      "flaw": "The specific way their armor costs them things they want",
+      "chemistry_with_protagonist": "How they read each other — what the other does that gets through the armor, what they find impossible to dismiss",
+      "romantic_obstacles": "What stands between them — structural, informational, emotional",
+      "shared_history": "What they have in common before or at the story's start",
+      "internal_monologue": "How their POV voice sounds in the reader's head: what it notices, what it jokes about, what it goes quiet about, where it lives in the body",
+      "relationship_dynamics": "Per named relationship: how they read this person, what they want from them, what they won't say"
+    },
+    {
+      "_role": "antagonist",
+      "name": "Full name",
+      "role": "antagonist",
+      "age": 0,
+      "pronouns": "he/him | she/her | they/them",
+      "physical_description": "Appearance and bearing",
+      "dialogue_style": "Register and style",
+      "motivations": "What they actually want and why it makes sense to them",
+      "methods": "How they operate — the specific tools and tactics",
+      "power_resources": "What they control: money, information, relationships, leverage",
+      "relationship_to_protagonist": "How they relate to each protagonist — what each one means to their plans"
+    },
+    {
+      "_role": "supporting",
+      "name": "Full name",
+      "role": "supporting",
+      "age": 0,
+      "pronouns": "he/him | she/her | they/them",
+      "physical_description": "Appearance — 1-2 sentences",
+      "personality": "Who they are in the story's world",
+      "dialogue_style": "Register — 1-2 sentences",
+      "skills_or_resources": "What they bring: access, information, money, social capital",
+      "role_in_story": "What narrative function they serve — what they enable, block, or reveal",
+      "relationship_to_protagonist": "How they relate to the protagonists"
+    }
+  ]
+}

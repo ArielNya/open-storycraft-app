@@ -1,0 +1,14 @@
+{
+  "genre": "Primary genre label (e.g. Fantasy, Romance, Thriller)",
+  "subgenre": "Specific subgenre label with any qualifying notes on heat level or style",
+  "flavor": "The specific cultural or tonal flavor that distinguishes this story (e.g. Mediterranean_High_Life, Gothic_Southern, Regency_London)",
+  "tone_notes": "One paragraph describing the surface tone, what carries the warmth or wit, what dark currents run underneath, what is load-bearing about the world's texture",
+  "tropes": ["snake_case_trope_identifier"],
+  "trope_commitments": {
+    "snake_case_trope_identifier": {
+      "role": "genre_contract | structural_engine | supporting_texture | deliberate_subversion",
+      "reader_expectation": "The recognizable experience, progression, scene type, or payoff this trope promises",
+      "planning_obligation": "What later planning must establish, develop, and pay off, or replace through deliberate subversion"
+    }
+  }
+}

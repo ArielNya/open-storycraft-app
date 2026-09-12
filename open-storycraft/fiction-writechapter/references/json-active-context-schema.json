@@ -1,0 +1,62 @@
+{
+  "_instructions": "Active context in JSON mode. The writing agent reads this before writing each chapter, and updates it after. This is the continuity thread between chapter-writing subagents. motif_register, genre_beat_tracker, character_arc_position, and next_chapter_genre_beat are updated after each chapter is written. The writing agent reads these before drafting to confirm motif cadence, genre beat obligation, and character emotional entry state. motif register source: theme.json. beat tracker source: synopsis.json genre_architecture.mandatory_beat_sequence. arc position source: characters.json and outline.json.",
+  "title": "Working title",
+  "last_written": "Chapter N title or null",
+  "next_chapter": 1,
+  "chapters_completed": [
+    {
+      "chapter_number": 1,
+      "title": "Chapter title",
+      "word_count": 0,
+      "key_achievement": "One sentence: what this chapter accomplished narratively",
+      "pov": "Character name"
+    }
+  ],
+  "continuity_notes": [
+    "Concrete facts established that must carry forward — injuries, items used or lost, information revealed, relationship shifts, promises made, specific details named (addresses, dates, names of minor characters)"
+  ],
+  "pending_details": [
+    "Things seeded but not yet resolved — the outline or earlier chapters set these up but they haven't paid off yet"
+  ],
+  "edits_needed": [
+    "Inconsistencies discovered during writing — character details that contradict the character file, continuity errors, timeline problems"
+  ],
+  "word_count_total": 0,
+  "motif_register": [
+    {
+      "motif": "Motif name from theme.json",
+      "last_appeared": "Chapter N or null if not yet appeared",
+      "register": "physical | sensory | behavioral | verbal | absent — the register it last appeared in",
+      "due_next": "Chapter N | overdue | not yet due",
+      "notes": "Brief note on how it appeared or why it is overdue"
+    }
+  ],
+  "genre_beat_tracker": [
+    {
+      "beat_name": "Beat name from synopsis.json genre_architecture.mandatory_beat_sequence",
+      "assigned_scene": 1,
+      "delivered": "yes | no | partial",
+      "chapter": "Chapter number where delivered, or null"
+    }
+  ],
+  "character_arc_position": [
+    {
+      "character": "Character name — must match a name in characters.json",
+      "current_arc_state": "One sentence describing their emotional/psychological state at the current story position",
+      "false_belief_status": "intact | cracking | shattered",
+      "next_arc_milestone": "What must happen next for this character's arc to advance"
+    }
+  ],
+  "next_chapter_genre_beat": "The next undelivered mandatory beat name, or null if all beats delivered",
+  "canon_register": [
+    {
+      "_instructions": "Canonical facts extracted after each chapter. A canonical fact is any concrete, durable truth that must remain consistent in all future chapters. Categories: character_physical, character_knowledge, character_capability, world_fact, magic_rule, timeline, relationship_state, object_state. Append after each chapter — never overwrite existing entries.",
+      "fact": "One sentence stating the canonical truth",
+      "category": "character_physical | character_knowledge | character_capability | world_fact | magic_rule | timeline | relationship_state | object_state",
+      "source_chapter": 0,
+      "characters": ["Character names this fact applies to, or empty array if world/system fact"]
+    }
+  ],
+  "started": "ISO timestamp",
+  "last_updated": "ISO timestamp"
+}

@@ -1,0 +1,23 @@
+# Spanish town prefixes
+# Each line: prefix<TAB>weight (higher = more common)
+San	30
+Santa	25
+Santo	5
+El	20
+La	20
+Los	10
+Las	10
+Monte	8
+Sierra	5
+Villa	8
+Puerto	6
+Fuente	5
+Arroyo	3
+Peña	3
+Vera	3
+Real	4
+Nuevo	3
+Nueva	3
+Castillo	2
+Torre	4
+Cerro	2

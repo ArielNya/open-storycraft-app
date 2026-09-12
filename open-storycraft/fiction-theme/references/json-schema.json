@@ -1,0 +1,11 @@
+{
+  "central_question": "The question the story asks but never answers directly — stated as a question",
+  "tone": "One paragraph: emotional register, what is light or warm, what dark currents run underneath, how the two are balanced",
+  "motifs": [
+    {
+      "name": "Short concrete name — an image, object, phrase, or recurring situation",
+      "type": "Visual | Verbal | Sensory | Structural | Recurring situation",
+      "what_it_is": "What it literally is in the story and what it tracks thematically"
+    }
+  ]
+}

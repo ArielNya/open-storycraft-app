@@ -1,0 +1,35 @@
+{
+  "title": "[Working title]",
+  "premise": "[2-3 sentences: who the protagonists are, what brings them together, what each wants from the arrangement, and the central irony or collision that makes the story work]",
+  "central_question": "[The question the story asks. Stated as a question. Should feel felt rather than declared.]",
+  "reader_promise": "[1-2 spoiler-light sentences: what emotional and genre experience is promised, what tension sustains the read, and what satisfaction the ending owes]",
+  "story_answer": "[1-2 spoiler-containing sentences: how the protagonist's final choice and the story outcome answer the central question]",
+  "protagonists": {
+    "heroine": "[Name, age, origin, personality, what she wants, what she doesn't know she needs, what makes her compelling. 3-5 sentences in a distinctive register that already sounds like her.]",
+    "hero": "[Name, age, origin, personality, what he wants, what he doesn't know he needs, what makes him compelling. 3-5 sentences. The contrast with the heroine should be visible in the register.]"
+  },
+  "mechanism": {
+    "how_they_meet": "[The scene, the circumstances, what each notices first about the other]",
+    "how_the_deal_forms": "[What transaction or arrangement brings them into proximity. What each believes they are getting.]",
+    "his_real_reason": "[What he isn't admitting to himself about why he took her / made the deal / stayed]"
+  },
+  "act_1": {
+    "shape": "[What happens across the first act: the game they play, what each is running, what is withheld, what the reader sees that the characters don't. 3-5 sentences.]",
+    "ends_with": "[State of play at the act break: what each knows, has, and wants. What has shifted without either admitting it. 1-2 sentences.]"
+  },
+  "act_2": {
+    "shape": "[What happens across the second act: escalation, entry into the antagonist's world, the deepening. What the cast does to each other. 3-5 sentences.]",
+    "midpoint": "[The specific event that reframes everything. What shifts and why it can't be undone. 1-2 sentences.]",
+    "ends_with": "[State of play at the act break. What choice has been made or forced. 1-2 sentences.]"
+  },
+  "act_3": {
+    "shape": "[What happens in the final act: the confrontation, the takedown, the resolution. How the antagonist falls. What each protagonist chooses. 3-5 sentences.]",
+    "payoff": "[The concrete climax or resolution that fulfills the reader promise and demonstrates the story answer. 1-2 sentences.]",
+    "ends_with": "[The final image or state. Where each character is. What the last line of the book feels like. 1-2 sentences.]"
+  },
+  "open_threads": [
+    "[Unresolved element that sits at the edge of resolution — a character not found, a threat not destroyed, a question not answered]"
+  ],
+  "locations_in_play": ["[Location name]"],
+  "characters_in_play": ["[Character name]"]
+}

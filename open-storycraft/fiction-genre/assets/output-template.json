@@ -1,0 +1,18 @@
+{
+  "genre": "[Primary genre — e.g. Fantasy Romance, Thriller, Sci-Fi]",
+  "subgenre": "[Specific subgenre with any qualifying notes on heat level or style]",
+  "flavor": "[Cultural or tonal flavor that distinguishes this story — use underscores, e.g. Mediterranean_High_Life]",
+  "tone_notes": "[One paragraph: what the surface feels like, what carries the warmth or wit, what dark currents run underneath, what texture of the world is load-bearing for the reader's experience]",
+  "tropes": [
+    "snake_case_trope_1",
+    "snake_case_trope_2",
+    "snake_case_trope_3"
+  ],
+  "trope_commitments": {
+    "snake_case_trope_1": {
+      "role": "genre_contract | structural_engine | supporting_texture | deliberate_subversion",
+      "reader_expectation": "[What recognizable experience or payoff the reader expects]",
+      "planning_obligation": "[What the synopsis and outline must establish, develop, and pay off]"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "title": "Working title",
+  "premise": "2-3 sentences: who the protagonists are, what brings them together, what each wants from the arrangement, and the central irony or collision",
+  "central_question": "The question the story asks through its events — stated as a question",
+  "reader_promise": "1-2 spoiler-light sentences: the emotional and genre experience promised, the sustaining tension, and the satisfaction the ending owes",
+  "story_answer": "1-2 spoiler-containing sentences: how the protagonist's final choice and the outcome answer the central question",
+  "trope_payoff_plan": {
+    "snake_case_trope_identifier": {
+      "role": "Role copied from the genre file",
+      "setup": "Story-specific establishment of the expected pattern",
+      "development": "How the pattern complicates through action and choice",
+      "payoff": "How the story fulfills or deliberately replaces the expected satisfaction"
+    }
+  },
+  "protagonists": {
+    "_note": "Keys are story-specific role labels. Use 'heroine'/'hero' for romance, 'protagonist'/'deuteragonist' for others, or a single key if single-POV.",
+    "heroine": "Name, age, background, personality, what she wants, what she doesn't know she needs, what makes her funny or dangerous or compelling. 3-5 sentences.",
+    "hero": "Same fields. The contrast with the heroine should be visible in the register of the descriptions."
+  },
+  "mechanism": {
+    "_note": "Keys describe the inciting logic. Use story-appropriate labels: 'how_they_meet', 'how_the_deal_forms', 'what_each_is_hiding', 'why_neither_can_leave', etc.",
+    "how_they_meet": "The scene and circumstances",
+    "how_the_deal_forms": "What each party believes they are getting",
+    "what_each_is_hiding": "The information or intent each conceals from the other at the start"
+  },
+  "act_1": {
+    "shape": "What happens across the first act. Tone, what each character is doing, what is being withheld. 3-5 sentences.",
+    "ends_with": "The exact state of play at the act break — what each character knows, has, and wants. 1-2 sentences."
+  },
+  "act_2": {
+    "shape": "What happens across the second act. Escalation, complication, what changes. 3-5 sentences.",
+    "midpoint": "The specific event that reframes everything — what shifts and why it can't be undone. 1-2 sentences.",
+    "ends_with": "State of play at the act break. 1-2 sentences."
+  },
+  "act_3": {
+    "shape": "What happens in the final act. How the antagonist falls, how the relationship resolves, what is chosen. 3-5 sentences.",
+    "payoff": "The concrete climax or resolution that fulfills the reader promise and demonstrates the story answer. 1-2 sentences.",
+    "ends_with": "The final image or state. Where each character is, what has changed. 1-2 sentences."
+  },
+  "open_threads": [
+    "Unresolved element that carries into a sequel or sits at the edge of the story's resolution"
+  ],
+  "locations_in_play": ["Location name — must match World.json"],
+  "characters_in_play": ["Character name — must match Characters.json"]
+}
