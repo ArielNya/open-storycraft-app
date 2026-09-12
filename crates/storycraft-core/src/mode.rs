@@ -28,6 +28,17 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// Mode implied by a named skill run.
+    #[must_use]
+    pub fn for_skill(skill: &str) -> Self {
+        match skill {
+            "fiction-story-sparks" => Self::Spark,
+            "fiction-writechapter" => Self::Draft,
+            other if crate::chunk::is_chunked_skill(other) => Self::Edit,
+            _ => Self::SingleSkill,
+        }
+    }
+
     /// Canonical lowercase identifier used on the status board and CLI.
     #[must_use]
     pub const fn as_str(self) -> &'static str {

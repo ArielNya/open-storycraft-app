@@ -2,8 +2,10 @@
 
 use crate::Error;
 use crate::catalog::SkillManifest;
-use crate::output::output_rel_path;
+use crate::chunk::LineChunk;
 use crate::pack::{DEFAULT_PER_FILE_CHARS, DEFAULT_TOTAL_CHARS, PackedContent, pack_skill};
+use crate::project::ProjectRoot;
+use crate::wiki::wiki_pack_files;
 
 /// System + user strings for one skill run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,8 +23,9 @@ pub fn build_prompt(
     skill_md: &str,
     packed: &PackedContent,
     answers: &[String],
+    output_path: Option<&str>,
 ) -> Prompt {
-    let output = output_rel_path(&manifest.name).unwrap_or("(none — do not write Wiki files)");
+    let output = output_path.unwrap_or("(none — do not write Wiki files)");
     let mut system = String::new();
     system.push_str("You are running one Open Storycraft skill. Follow SKILL.md exactly.\n");
     system
@@ -67,7 +70,7 @@ pub fn build_prompt(
     Prompt { system, user }
 }
 
-/// Pack the skill, hash it, and compile the prompt.
+/// Pack the skill (plus Wiki files when a project is open) and compile the prompt.
 ///
 /// # Errors
 ///
@@ -75,13 +78,42 @@ pub fn build_prompt(
 pub fn prepare_skill(
     manifest: &SkillManifest,
     answers: &[String],
+    project: Option<&ProjectRoot>,
+    chapter: u32,
+    output_path: Option<&str>,
 ) -> Result<(PackedContent, Prompt), Error> {
-    let pack = pack_skill(manifest);
+    let mut pack = pack_skill(manifest);
+    if let Some(project) = project {
+        pack.files
+            .extend(wiki_pack_files(project, &manifest.name, chapter));
+    }
     let packed = pack.materialize(DEFAULT_PER_FILE_CHARS, DEFAULT_TOTAL_CHARS)?;
     let skill_md = std::fs::read_to_string(manifest.skill_md())
         .map_err(|err| Error::io(manifest.skill_md(), err))?;
-    let prompt = build_prompt(manifest, &skill_md, &packed, answers);
+    let prompt = build_prompt(manifest, &skill_md, &packed, answers, output_path);
     Ok((packed, prompt))
+}
+
+/// Prompt for one 40-line editorial window. Return only the rewritten chunk.
+#[must_use]
+pub fn build_chunk_prompt(base: &Prompt, chunk: &LineChunk, total_lines: usize) -> Prompt {
+    let mut system = String::with_capacity(base.system.len() + 160);
+    system.push_str(&base.system);
+    system.push_str(
+        "\n\nThis call is one 40-line window. Return ONLY the rewritten lines for this window. \
+No report, no markdown fences, no preamble. Copy unchanged lines verbatim.\n",
+    );
+    let mut user = String::with_capacity(base.user.len() + chunk.text.len() + 80);
+    user.push_str(&base.user);
+    user.push_str("# Chunk (lines ");
+    user.push_str(&chunk.start_line.to_string());
+    user.push('-');
+    user.push_str(&chunk.end_line.to_string());
+    user.push_str(" of ");
+    user.push_str(&total_lines.to_string());
+    user.push_str(")\n\n");
+    user.push_str(&chunk.text);
+    Prompt { system, user }
 }
 
 #[cfg(test)]
@@ -123,6 +155,7 @@ mod tests {
             "# Genre Selector\n",
             &packed,
             &["Fantasy".into(), "".into(), "Night Market".into()],
+            Some("Wiki/Style/genre.md"),
         );
         assert!(prompt.system.contains("Wiki/Style/genre.md"));
         assert!(prompt.user.contains("1. Fantasy"));

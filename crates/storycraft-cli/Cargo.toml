@@ -16,6 +16,7 @@ clap.workspace = true
 storycraft-auth.workspace = true
 storycraft-core.workspace = true
 storycraft-llm.workspace = true
+storycraft-tools.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

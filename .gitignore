@@ -1,12 +1,55 @@
+# Rust
 /target
-.storycraft/
 **/*.rs.bk
+*.pdb
+
+# Local book projects and job logs (never commit someone's Wiki)
+/book/
+.storycraft/
+**/.storycraft/
+
+# Secrets — never commit keys, tokens, or signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
+keystore.properties
+oauth.json
+app.json
+
+# Snapshots waiting for review
+*.snap.new
+
+# Node / frontend toolchains (this app is static ui/, but keep the ignore)
+node_modules/
+dist/
+.vite/
+.svelte-kit/
+
+# Tauri / cargo-mobile generated build junk
+crates/storycraft-app/gen/android/.gradle/
+crates/storycraft-app/gen/android/**/build/
+crates/storycraft-app/gen/android/local.properties
+crates/storycraft-app/gen/android/app/src/main/assets/
+crates/storycraft-app/gen/android/app/src/main/jniLibs/
+crates/storycraft-app/gen/android/keystore.properties
+crates/storycraft-app/gen/apple/**/build/
+*.apk
+*.aab
+*.apks
+*.ipa
+*.dSYM
+
+# IDE / OS
 .idea/
 .vscode/
 *.swp
 *.swo
-.env
-.env.*
-!.env.example
+*~
 .DS_Store
-*.snap.new
+Thumbs.db
+.direnv/
+.pre-commit-config.yaml

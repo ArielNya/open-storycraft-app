@@ -1,0 +1,39 @@
+[package]
+name = "storycraft-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Tauri 2 desktop (and later Android) shell for Open Storycraft"
+# Linux link deps: libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+[lib]
+name = "storycraft_app"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "open-storycraft"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+storycraft-auth.workspace = true
+storycraft-core.workspace = true
+storycraft-llm.workspace = true
+storycraft-tools.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+walkdir.workspace = true
+
+[lints]
+workspace = true

@@ -196,6 +196,65 @@ impl StatusBoard {
     pub fn next(&self) -> &NextAction {
         &self.next
     }
+
+    /// JSON-friendly copy for the Tauri/Android shell.
+    #[must_use]
+    pub fn snapshot(&self) -> StatusSnapshot {
+        StatusSnapshot {
+            project: self
+                .project
+                .as_ref()
+                .map(|project| project.path().display().to_string()),
+            title: self.project.as_ref().and_then(ProjectRoot::title),
+            mode: self.mode.as_str().to_owned(),
+            chapter: self.chapter,
+            slots: Slot::ALL
+                .iter()
+                .map(|slot| SlotSnapshot {
+                    name: slot.as_str().to_owned(),
+                    state: self.slot(*slot).as_str().to_owned(),
+                })
+                .collect(),
+            next_skill: self.next.skill.clone(),
+            next_why: self.next.why.clone(),
+            missing: self
+                .next
+                .missing
+                .iter()
+                .map(|slot| slot.as_str().to_owned())
+                .collect(),
+        }
+    }
+}
+
+/// IPC view of one spine slot.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlotSnapshot {
+    /// Slot name (`genre`, `outline`, …).
+    pub name: String,
+    /// `yes` / `partial` / `no`.
+    pub state: String,
+}
+
+/// IPC view of the status board.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StatusSnapshot {
+    /// Absolute project root, if a Wiki was found.
+    pub project: Option<String>,
+    /// Working title from genre/synopsis, if any.
+    pub title: Option<String>,
+    /// Orchestrator mode.
+    pub mode: String,
+    /// Chapter used for scenes / psych / chapters.
+    pub chapter: u32,
+    /// Spine slots in board order.
+    pub slots: Vec<SlotSnapshot>,
+    /// Next skill folder name.
+    pub next_skill: Option<String>,
+    /// Why that skill is next.
+    pub next_why: String,
+    /// Incomplete slots blocking the next skill.
+    pub missing: Vec<String>,
 }
 
 impl fmt::Display for StatusBoard {
@@ -399,5 +458,14 @@ mod tests {
         assert!(has_genre_signal("---\ngenre: Fantasy\n---\n"));
         assert!(has_genre_signal("# Genre\n\nSome text"));
         assert!(!has_genre_signal("# Audience\n"));
+    }
+
+    #[test]
+    fn snapshot_lists_every_slot() {
+        let board = StatusBoard::inspect(None, Mode::Resume, 1).unwrap();
+        let snap = board.snapshot();
+        assert_eq!(snap.slots.len(), 12);
+        assert_eq!(snap.next_skill.as_deref(), Some("fiction-genre"));
+        assert!(snap.project.is_none());
     }
 }

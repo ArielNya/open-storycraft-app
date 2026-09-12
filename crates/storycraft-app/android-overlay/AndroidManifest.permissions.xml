@@ -1,0 +1,14 @@
+<!-- Merge into gen/android/app/src/main/AndroidManifest.xml after `tauri android init`.
+     Min SDK 26. Do not add MANAGE_EXTERNAL_STORAGE; books are SAF / app-private. -->
+<manifest>
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <application>
+    <service
+      android:name=".JobForegroundService"
+      android:exported="false"
+      android:foregroundServiceType="dataSync" />
+  </application>
+</manifest>

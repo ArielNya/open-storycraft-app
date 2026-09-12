@@ -13,11 +13,13 @@ use storycraft_auth::{
     default_token_path,
 };
 use storycraft_core::{
-    Catalog, Error, Job, JobStatus, JobStore, Mode, NewJob, ProjectRoot, StatusBoard, discover,
-    ensure_requires, find_skills_dir, format_project_list, infer_chapter, pack_skill,
-    prepare_skill, validate_preview,
+    CHUNK_LINES, Catalog, Error, Job, JobStatus, JobStore, Mode, NewJob, PackKind, ProjectRoot,
+    StatusBoard, apply_chunk_edit, discover, ensure_requires, export_zip, find_chapter_prose,
+    find_skills_dir, format_project_list, infer_chapter, is_chunked_skill, merge_chunks,
+    pack_skill, prepare_skill, resolve_output_path, split_lines, unified_diff, validate_preview,
 };
 use storycraft_llm::{ApiStyle, CancellationToken, OpenAiClient, ProviderConfig, Secret};
+use storycraft_tools::{GenerateOpts, is_local_tool};
 
 /// Open Storycraft command-line host.
 #[derive(Parser)]
@@ -135,6 +137,54 @@ pub enum Command {
         #[command(subcommand)]
         command: AuthCommand,
     },
+    /// Unified diff of a job's original vs preview
+    Diff {
+        job_id: String,
+        #[command(flatten)]
+        project: ProjectPath,
+    },
+    /// Zip Wiki/ and Chapters/ (jobs stay out)
+    Export {
+        #[command(flatten)]
+        project: ProjectPath,
+        /// Destination zip path
+        #[arg(long, short = 'o')]
+        out: Option<PathBuf>,
+    },
+    /// Markov names from a culture list (no LLM)
+    Namegen {
+        /// Culture file stem (`fantasy`, `anglo`, …)
+        #[arg(long, default_value = "fantasy")]
+        culture: String,
+        #[arg(long, default_value_t = 10)]
+        count: usize,
+        #[arg(long)]
+        seed: Option<u64>,
+        /// Explicit `data/*.txt` path (overrides `--culture`)
+        #[arg(long)]
+        list: Option<PathBuf>,
+    },
+    /// Markov town names from a list (no LLM)
+    Town {
+        #[arg(long, default_value = "fantasy")]
+        list_name: String,
+        #[arg(long, default_value_t = 10)]
+        count: usize,
+        #[arg(long)]
+        seed: Option<u64>,
+        #[arg(long)]
+        list: Option<PathBuf>,
+    },
+    /// Burstiness report for a chapter (no LLM)
+    Burstiness {
+        #[command(flatten)]
+        project: ProjectPath,
+        #[arg(long)]
+        chapter: Option<u32>,
+        /// Explicit chapter file (overrides `--chapter`)
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
 }
 
 /// OAuth subcommands.
@@ -213,8 +263,10 @@ pub async fn run() -> anyhow::Result<()> {
             let pack = pack_skill(manifest);
             for file in &pack.files {
                 let label = match file.kind {
-                    storycraft_core::PackKind::Skill => "skill",
-                    storycraft_core::PackKind::Reference => "ref",
+                    PackKind::Skill => "skill",
+                    PackKind::Reference => "ref",
+                    PackKind::Wiki => "wiki",
+                    PackKind::WikiTail => "tail",
                 };
                 println!("{label}  {}", file.relative);
             }
@@ -321,6 +373,118 @@ pub async fn run() -> anyhow::Result<()> {
                 println!("signed out");
             }
         },
+        Command::Diff { job_id, project } => {
+            let root = jobs_root(&project.resolve())?;
+            let store = JobStore::open(&root)?;
+            let original = store.read_original(&job_id)?;
+            let preview = store.read_preview(&job_id)?;
+            let diff = unified_diff(&original, &preview);
+            if diff.is_empty() {
+                println!("no changes");
+            } else {
+                print!("{diff}");
+            }
+        }
+        Command::Export { project, out } => {
+            let path = project.resolve();
+            let project = resolve_project(&path)?
+                .ok_or_else(|| anyhow!("no Wiki folder under {}", path.display()))?;
+            let dest = match out {
+                Some(p) => p,
+                None => PathBuf::from(format!(
+                    "{}.zip",
+                    project
+                        .path()
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "storycraft-export".into())
+                )),
+            };
+            export_zip(&project, &dest)?;
+            println!("exported {}", dest.display());
+        }
+        Command::Namegen {
+            culture,
+            count,
+            seed,
+            list,
+        } => {
+            let path = match list {
+                Some(p) => p,
+                None => resolve_skills_dir(cli.skills_dir.as_deref())?
+                    .join(storycraft_tools::name_list_rel(&culture)),
+            };
+            let names = storycraft_tools::generate_from_path(
+                &path,
+                &GenerateOpts {
+                    count,
+                    seed,
+                    ..GenerateOpts::default()
+                },
+            )?;
+            for name in names {
+                println!("{name}");
+            }
+        }
+        Command::Town {
+            list_name,
+            count,
+            seed,
+            list,
+        } => {
+            let path = match list {
+                Some(p) => p,
+                None => resolve_skills_dir(cli.skills_dir.as_deref())?
+                    .join(storycraft_tools::town_list_rel(&list_name)),
+            };
+            let names = storycraft_tools::generate_from_path(
+                &path,
+                &GenerateOpts {
+                    count,
+                    seed,
+                    ..GenerateOpts::default()
+                },
+            )?;
+            for name in names {
+                println!("{name}");
+            }
+        }
+        Command::Burstiness {
+            project,
+            chapter,
+            file,
+        } => {
+            let text = match file {
+                Some(path) => std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?,
+                None => {
+                    let root = resolve_project(&project.resolve())?
+                        .ok_or_else(|| anyhow!("no Wiki folder"))?;
+                    let n = chapter.unwrap_or_else(|| infer_chapter(&root));
+                    let path = find_chapter_prose(&root, n)
+                        .ok_or_else(|| anyhow!("no chapter prose for chapter {n}"))?;
+                    std::fs::read_to_string(&path)
+                        .with_context(|| format!("reading {}", path.display()))?
+                }
+            };
+            let report = storycraft_tools::measure(&text);
+            println!("sentences {}", report.sentence_count);
+            println!("paragraphs {}", report.paragraph_count);
+            println!(
+                "sentence variance {} (mean {} stdev {})",
+                report.sentence_length_variance_bucket,
+                report.sentence_length_mean,
+                report.sentence_length_stdev
+            );
+            println!("dialogue ratio {}", report.dialogue_word_ratio);
+            println!(
+                "interiority {} ({})",
+                report.interiority_risk_level, report.interiority_risk_score
+            );
+            if let Some(opener) = report.top_openers.first() {
+                println!("top opener {} {}%", opener.word, opener.pct);
+            }
+        }
     }
     Ok(())
 }
@@ -352,20 +516,28 @@ pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
         .get(&req.skill)
         .ok_or_else(|| Error::SkillNotFound(req.skill.clone()))?;
     let project = resolve_project(&req.path)?;
-    ensure_requires(project.as_ref(), &manifest.requires)?;
     let chapter = match (req.chapter, project.as_ref()) {
         (Some(n), _) => n,
         (None, Some(project)) => infer_chapter(project),
         (None, None) => 1,
     };
-    let mode = if req.skill == "fiction-story-sparks" {
-        Mode::Spark
-    } else {
-        Mode::SingleSkill
-    };
-    let (packed, prompt) = prepare_skill(manifest, &req.answers)?;
+    ensure_requires(project.as_ref(), &manifest.requires, chapter)?;
+    let output_path = resolve_output_path(project.as_ref(), &req.skill, chapter);
+    let mode = Mode::for_skill(&req.skill);
     let root = jobs_root(&req.path)?;
     let store = JobStore::open(&root)?;
+
+    if is_local_tool(&req.skill) {
+        return run_local(&req, &store, project.as_ref(), chapter, output_path, mode).await;
+    }
+
+    let (packed, prompt) = prepare_skill(
+        manifest,
+        &req.answers,
+        project.as_ref(),
+        chapter,
+        output_path.as_deref(),
+    )?;
     let mut job = store.create(NewJob {
         skill: req.skill.clone(),
         mode,
@@ -374,44 +546,174 @@ pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
         packed_context_hash: packed.hash.clone(),
         provider: req.provider.clone(),
         model: req.model.clone(),
+        output_path,
     })?;
+    snapshot_original(&store, &job)?;
     store.set_status(&mut job, JobStatus::Running)?;
 
     let client = build_client(&req).await?;
     let cancel = CancellationToken::new();
-    let preview_id = job.id.clone();
-    let result = client
-        .complete(&prompt.system, &prompt.user, &cancel, |delta| {
-            store
-                .append_preview(&preview_id, delta)
-                .map_err(|err| storycraft_llm::Error::InvalidPayload(err.to_string()))
-        })
-        .await;
+    let text = if is_chunked_skill(&req.skill) {
+        run_chunked(&store, &job, &client, &prompt, &cancel).await
+    } else {
+        let preview_id = job.id.clone();
+        client
+            .complete(&prompt.system, &prompt.user, &cancel, |delta| {
+                store
+                    .append_preview(&preview_id, delta)
+                    .map_err(|err| storycraft_llm::Error::InvalidPayload(err.to_string()))
+            })
+            .await
+            .map_err(anyhow::Error::from)
+    };
 
-    match result {
-        Ok(text) => {
-            store.write_preview(&job.id, &text)?;
-            if let Err(err) = validate_preview(&job.skill, &text) {
-                store.fail(&mut job, err.to_string())?;
-                return Err(err.into());
-            }
-            store.set_status(&mut job, JobStatus::NeedsConfirm)?;
-            if req.commit {
-                validate_preview(&job.skill, &text)?;
-                let _ = store.commit(&mut job)?;
-            }
-            Ok(job)
-        }
+    match text {
+        Ok(text) => finish_preview(&req, &store, &mut job, &text),
         Err(err) => {
             store.fail(&mut job, err.to_string())?;
-            Err(err).with_context(|| {
-                format!(
-                    "provider '{}' at {} (is anything listening? pass --base-url and --api-key)",
-                    req.provider, req.base_url
-                )
-            })
+            Err(err).context(format!(
+                "provider '{}' at {} (is anything listening? pass --base-url and --api-key)",
+                req.provider, req.base_url
+            ))
         }
     }
+}
+
+fn finish_preview(
+    req: &RunRequest,
+    store: &JobStore,
+    job: &mut Job,
+    text: &str,
+) -> anyhow::Result<Job> {
+    store.write_preview(&job.id, text)?;
+    if let Err(err) = validate_preview(&job.skill, text) {
+        store.fail(job, err.to_string())?;
+        return Err(err.into());
+    }
+    store.set_status(job, JobStatus::NeedsConfirm)?;
+    if req.commit {
+        validate_preview(&job.skill, text)?;
+        let _ = store.commit(job)?;
+    }
+    Ok(job.clone())
+}
+
+fn snapshot_original(store: &JobStore, job: &Job) -> anyhow::Result<()> {
+    let Some(dest) = store.output_abs(job) else {
+        return Ok(());
+    };
+    if dest.is_file() {
+        let text = std::fs::read_to_string(&dest)
+            .with_context(|| format!("reading {}", dest.display()))?;
+        store.write_original(&job.id, &text)?;
+    }
+    Ok(())
+}
+
+async fn run_chunked(
+    store: &JobStore,
+    job: &Job,
+    client: &OpenAiClient,
+    prompt: &storycraft_core::Prompt,
+    cancel: &CancellationToken,
+) -> anyhow::Result<String> {
+    let original = store.read_original(&job.id)?;
+    if original.is_empty() {
+        return Err(anyhow!(
+            "no chapter prose for chapter {} (chunked skills rewrite an existing file)",
+            job.chapter
+        ));
+    }
+    let chunks = split_lines(&original, CHUNK_LINES);
+    let total_lines = original.lines().count();
+    let mut merged = Vec::with_capacity(chunks.len());
+    for chunk in &chunks {
+        let piece = storycraft_core::build_chunk_prompt(prompt, chunk, total_lines);
+        let edited = client
+            .complete(&piece.system, &piece.user, cancel, |_| Ok(()))
+            .await?;
+        merged.push(apply_chunk_edit(&chunk.text, &edited));
+        store.write_preview(&job.id, &merge_chunks(&merged))?;
+    }
+    Ok(merge_chunks(&merged))
+}
+
+async fn run_local(
+    req: &RunRequest,
+    store: &JobStore,
+    project: Option<&ProjectRoot>,
+    chapter: u32,
+    output_path: Option<String>,
+    mode: Mode,
+) -> anyhow::Result<Job> {
+    let text = match req.skill.as_str() {
+        "burstiness-check" => {
+            let project = project.ok_or_else(|| anyhow!("burstiness-check needs a Wiki folder"))?;
+            let path = find_chapter_prose(project, chapter)
+                .ok_or_else(|| anyhow!("no chapter prose for chapter {chapter}"))?;
+            let body = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            let report = storycraft_tools::measure(&body);
+            format!(
+                "# Burstiness\n\n- sentences: {}\n- paragraphs: {}\n- sentence variance: {} (mean {}, stdev {})\n- dialogue ratio: {}\n- interiority: {} ({})\n- longest opener run: {}\n",
+                report.sentence_count,
+                report.paragraph_count,
+                report.sentence_length_variance_bucket,
+                report.sentence_length_mean,
+                report.sentence_length_stdev,
+                report.dialogue_word_ratio,
+                report.interiority_risk_level,
+                report.interiority_risk_score,
+                report.longest_same_opener_run
+            )
+        }
+        "name-generator" | "town-generator" => {
+            let skills = resolve_skills_dir(req.skills_dir.as_deref())?;
+            let list_name = req.answers.first().map(String::as_str).unwrap_or("fantasy");
+            let count = req
+                .answers
+                .get(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10usize);
+            let rel = if req.skill == "name-generator" {
+                storycraft_tools::name_list_rel(list_name)
+            } else {
+                storycraft_tools::town_list_rel(list_name)
+            };
+            let path = skills.join(rel);
+            let names = storycraft_tools::generate_from_path(
+                &path,
+                &GenerateOpts {
+                    count,
+                    ..GenerateOpts::default()
+                },
+            )?;
+            let mut out = String::from("# Names\n\n");
+            for name in names {
+                out.push_str("- ");
+                out.push_str(&name);
+                out.push('\n');
+            }
+            out
+        }
+        other => return Err(anyhow!("not a local tool: {other}")),
+    };
+    let mut job = store.create(NewJob {
+        skill: req.skill.clone(),
+        mode,
+        chapter,
+        answers: req.answers.clone(),
+        packed_context_hash: "local".into(),
+        provider: "local".into(),
+        model: "none".into(),
+        output_path,
+    })?;
+    store.write_preview(&job.id, &text)?;
+    store.set_status(&mut job, JobStatus::NeedsConfirm)?;
+    if req.commit {
+        let _ = store.commit(&mut job)?;
+    }
+    Ok(job)
 }
 
 async fn build_client(req: &RunRequest) -> anyhow::Result<OpenAiClient> {

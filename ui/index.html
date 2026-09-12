@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Open Storycraft</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <header class="top">
+      <p class="eyebrow">Open Storycraft</p>
+      <h1 id="title">No book open</h1>
+      <p id="subtitle" class="muted">Pick a folder that contains Wiki/</p>
+    </header>
+
+    <main id="view-home" class="view">
+      <section class="card">
+        <button id="btn-open" class="primary" type="button">Open book folder</button>
+        <p id="project-path" class="muted path"></p>
+      </section>
+      <section class="card">
+        <h2>Status</h2>
+        <ul id="slots" class="slots"></ul>
+        <button id="btn-next" class="primary" type="button" disabled>Next</button>
+        <div class="row">
+          <button id="btn-spark" type="button">Spark</button>
+          <button id="btn-refresh" type="button">Refresh</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Jobs</h2>
+        <ul id="jobs" class="list"></ul>
+      </section>
+    </main>
+
+    <main id="view-book" class="view hidden">
+      <section class="card">
+        <h2>Files</h2>
+        <ul id="files" class="list"></ul>
+      </section>
+      <section class="card">
+        <h2>Preview</h2>
+        <pre id="file-preview" class="md"></pre>
+      </section>
+    </main>
+
+    <main id="view-write" class="view hidden">
+      <section class="card">
+        <h2>Chapters</h2>
+        <p class="muted">Draft writes a job preview, not the live file.</p>
+        <ul id="chapters" class="list"></ul>
+      </section>
+    </main>
+
+    <main id="view-edit" class="view hidden">
+      <section class="card">
+        <h2>Editorial ladder</h2>
+        <p class="muted">One pass at a time. Kill/line-edit/fragment runs are 40-line chunks, one confirm at the end.</p>
+        <ul id="ladder" class="list"></ul>
+      </section>
+      <section class="card">
+        <h2>Burstiness</h2>
+        <p class="muted">Local. Does not call a model.</p>
+        <button id="btn-burstiness" type="button">Measure this chapter</button>
+        <pre id="burst-out" class="md"></pre>
+      </section>
+    </main>
+
+    <main id="view-settings" class="view hidden">
+      <section class="card">
+        <h2>Provider</h2>
+        <label>Profile
+          <select id="set-provider">
+            <option value="openai-compat">openai-compat</option>
+            <option value="xai-apikey">xai-apikey</option>
+            <option value="grok-oauth">grok-oauth (community)</option>
+          </select>
+        </label>
+        <label>Base URL
+          <input id="set-base" type="url" spellcheck="false" />
+        </label>
+        <label>API key
+          <input id="set-key" type="password" autocomplete="off" />
+        </label>
+        <label>API style
+          <select id="set-style">
+            <option value="chat_completions">chat_completions</option>
+            <option value="responses">responses</option>
+          </select>
+        </label>
+        <label>Model
+          <input id="set-model" type="text" spellcheck="false" />
+        </label>
+        <label>Skills dir
+          <input id="set-skills" type="text" spellcheck="false" placeholder="optional" />
+        </label>
+        <button id="btn-save-settings" class="primary" type="button">Save settings</button>
+        <button id="btn-export" type="button">Export zip</button>
+      </section>
+      <section class="card">
+        <h2>Sign in with xAI (community OAuth)</h2>
+        <p class="muted">
+          SuperGrok / X Premium+ is a consumer subscription. It is not console API billing.
+          Login can succeed and inference can still return 403 tier denied.
+        </p>
+        <p id="auth-status" class="muted"></p>
+        <p id="auth-code" class="code"></p>
+        <div class="row">
+          <button id="btn-auth" type="button">Sign in</button>
+          <button id="btn-auth-poll" type="button">I've authorized</button>
+          <button id="btn-auth-out" type="button">Sign out</button>
+        </div>
+      </section>
+    </main>
+
+    <section id="job-card" class="job-card hidden">
+      <header>
+        <strong id="job-title">Job</strong>
+        <span id="job-state" class="pill"></span>
+      </header>
+      <pre id="job-preview" class="md"></pre>
+      <pre id="job-diff" class="md diff hidden"></pre>
+      <div class="row">
+        <button id="btn-save-job" class="primary" type="button">Save to Wiki</button>
+        <button id="btn-diff-job" type="button">Diff</button>
+        <button id="btn-reject-job" type="button">Reject</button>
+        <button id="btn-close-job" type="button">Close</button>
+      </div>
+    </section>
+
+    <p id="toast" class="toast hidden"></p>
+
+    <nav class="bottom">
+      <button data-view="home" class="active" type="button">Home</button>
+      <button data-view="book" type="button">Book</button>
+      <button data-view="write" type="button">Write</button>
+      <button data-view="edit" type="button">Edit</button>
+      <button data-view="settings" type="button">Settings</button>
+    </nav>
+
+    <script src="app.js"></script>
+  </body>
+</html>

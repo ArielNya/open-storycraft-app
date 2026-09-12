@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::output::output_rel_path;
+use crate::output::split_character_preview;
 use crate::{Error, Mode};
 
 /// Lifecycle of one skill execution.
@@ -95,6 +95,8 @@ pub struct NewJob {
     pub provider: String,
     /// Model id.
     pub model: String,
+    /// Relative destination, if this run writes a file or directory.
+    pub output_path: Option<String>,
 }
 
 /// On-disk job log for one project (or a fallback root when there is no Wiki).
@@ -140,7 +142,7 @@ impl JobStore {
         let id = new_job_id(&spec.skill, &self.dir);
         let job = Job {
             id,
-            output_path: output_rel_path(&spec.skill).map(ToOwned::to_owned),
+            output_path: spec.output_path,
             skill: spec.skill,
             mode: spec.mode,
             chapter: spec.chapter,
@@ -167,6 +169,12 @@ impl JobStore {
     #[must_use]
     pub fn preview_path(&self, id: &str) -> PathBuf {
         self.dir.join(format!("{id}.preview.md"))
+    }
+
+    /// Snapshot of the live destination before this job, for diffs.
+    #[must_use]
+    pub fn original_path(&self, id: &str) -> PathBuf {
+        self.dir.join(format!("{id}.original.md"))
     }
 
     /// Absolute Wiki destination for a job, if it has one.
@@ -260,6 +268,30 @@ impl JobStore {
         fs::read_to_string(&path).map_err(|err| Error::io(&path, err))
     }
 
+    /// Store the live file as it existed before this job.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] if the sidecar cannot be written.
+    pub fn write_original(&self, id: &str, text: &str) -> Result<(), Error> {
+        let path = self.original_path(id);
+        fs::write(&path, text).map_err(|err| Error::io(&path, err))
+    }
+
+    /// Read the original sidecar. Missing file is an empty original (new dest).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] on read failure other than not found.
+    pub fn read_original(&self, id: &str) -> Result<String, Error> {
+        let path = self.original_path(id);
+        match fs::read_to_string(&path) {
+            Ok(text) => Ok(text),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(err) => Err(Error::io(&path, err)),
+        }
+    }
+
     /// Persist `job` as JSON.
     ///
     /// # Errors
@@ -313,6 +345,9 @@ impl JobStore {
                 expected: JobStatus::NeedsConfirm.to_string(),
             });
         }
+        if job.skill == "fiction-characters" {
+            return self.commit_characters(job);
+        }
         let dest = match self.output_abs(job) {
             Some(path) => path,
             None => {
@@ -333,6 +368,27 @@ impl JobStore {
         fs::rename(&tmp, &dest).map_err(|err| Error::io(&dest, err))?;
         self.set_status(job, JobStatus::Saved)?;
         Ok(Some(dest))
+    }
+
+    fn commit_characters(&self, job: &mut Job) -> Result<Option<PathBuf>, Error> {
+        let dir = self.root.join("Wiki/Characters");
+        fs::create_dir_all(&dir).map_err(|err| Error::io(&dir, err))?;
+        let preview = self.read_preview(&job.id)?;
+        let files = split_character_preview(&preview);
+        let mut last = dir.clone();
+        for (name, body) in files {
+            let dest = dir.join(name);
+            let tmp = {
+                let mut os = dest.as_os_str().to_owned();
+                os.push(".tmp");
+                PathBuf::from(os)
+            };
+            fs::write(&tmp, body.as_bytes()).map_err(|err| Error::io(&tmp, err))?;
+            fs::rename(&tmp, &dest).map_err(|err| Error::io(&dest, err))?;
+            last = dest;
+        }
+        self.set_status(job, JobStatus::Saved)?;
+        Ok(Some(last))
     }
 
     /// Reject a preview without touching the Wiki.
@@ -397,6 +453,7 @@ mod tests {
                 packed_context_hash: "hash".into(),
                 provider: "openai-compat".into(),
                 model: "mock".into(),
+                output_path: Some("Wiki/Style/genre.md".into()),
             })
             .unwrap();
         store
@@ -425,6 +482,7 @@ mod tests {
                 packed_context_hash: "hash".into(),
                 provider: "openai-compat".into(),
                 model: "mock".into(),
+                output_path: None,
             })
             .unwrap();
         store.write_preview(&job.id, "Premise: a test.\n").unwrap();
@@ -447,11 +505,41 @@ mod tests {
                 packed_context_hash: "h".into(),
                 provider: "openai-compat".into(),
                 model: "mock".into(),
+                output_path: Some("Wiki/Style/genre.md".into()),
             })
             .unwrap();
         store.set_status(&mut job, JobStatus::NeedsConfirm).unwrap();
         store.reject(&mut job).unwrap();
         assert_eq!(job.status, JobStatus::Rejected);
         assert!(!tmp.path().join("Wiki/Style/genre.md").exists());
+    }
+
+    #[test]
+    fn commit_splits_character_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = JobStore::open(tmp.path()).unwrap();
+        let mut job = store
+            .create(NewJob {
+                skill: "fiction-characters".into(),
+                mode: Mode::SingleSkill,
+                chapter: 1,
+                answers: Vec::new(),
+                packed_context_hash: "h".into(),
+                provider: "openai-compat".into(),
+                model: "mock".into(),
+                output_path: Some("Wiki/Characters".into()),
+            })
+            .unwrap();
+        store
+            .write_preview(
+                &job.id,
+                "---\nname: Mira\nrole: protagonist\n---\n\n# Mira\n\nVoice of the dock.\n\n---\nname: Kael\nrole: antagonist\n---\n\n# Kael\n\nSteel and debt.\n",
+            )
+            .unwrap();
+        store.set_status(&mut job, JobStatus::NeedsConfirm).unwrap();
+        store.commit(&mut job).unwrap();
+        assert!(tmp.path().join("Wiki/Characters/Mira.md").is_file());
+        assert!(tmp.path().join("Wiki/Characters/Kael.md").is_file());
+        assert_eq!(job.status, JobStatus::Saved);
     }
 }

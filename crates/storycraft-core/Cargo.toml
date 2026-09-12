@@ -10,9 +10,11 @@ description = "Project discovery, status board, skill catalog, and context packi
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+similar.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 walkdir.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

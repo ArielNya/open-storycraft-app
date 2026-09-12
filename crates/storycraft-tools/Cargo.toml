@@ -1,0 +1,15 @@
+[package]
+name = "storycraft-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "On-device name/town Markov generators and burstiness stats (no LLM, no Python)"
+
+[dependencies]
+rand.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

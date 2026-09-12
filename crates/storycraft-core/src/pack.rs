@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::Error;
 use crate::catalog::SkillManifest;
+use crate::wiki::{last_n_words, prev_chapter_tail_words};
 
 /// What kind of file landed in a pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -15,6 +16,10 @@ pub enum PackKind {
     Skill,
     /// A file the skill text actually links (`references/`, `assets/`, `data/`).
     Reference,
+    /// A Wiki or chapter file selected for this skill.
+    Wiki,
+    /// Previous-chapter body, truncated to the last 1.5k words.
+    WikiTail,
 }
 
 /// One file included in a pack.
@@ -123,8 +128,13 @@ impl ContextPack {
         for file in &self.files {
             let raw =
                 std::fs::read_to_string(&file.path).map_err(|err| Error::io(&file.path, err))?;
+            let raw = if file.kind == PackKind::WikiTail {
+                last_n_words(&raw, prev_chapter_tail_words())
+            } else {
+                raw
+            };
             let (text, truncated) = truncate_chars(&raw, per_file_chars);
-            if file.kind == PackKind::Reference && used.saturating_add(text.len()) > total_chars {
+            if file.kind != PackKind::Skill && used.saturating_add(text.len()) > total_chars {
                 break;
             }
             used = used.saturating_add(text.len());

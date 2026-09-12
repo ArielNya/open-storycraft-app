@@ -73,6 +73,9 @@ pub enum Error {
         /// Parse detail.
         detail: String,
     },
+    /// Zip export failed after the file was opened.
+    #[error("export failed: {0}")]
+    Export(String),
 }
 
 impl Error {
