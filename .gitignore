@@ -53,3 +53,5 @@ crates/storycraft-app/gen/apple/**/build/
 Thumbs.db
 .direnv/
 .pre-commit-config.yaml
+
+.uxcheck/app.json .uxcheck/book .uxcheck/data
