@@ -21,6 +21,9 @@ const state = {
   jobId: null,
   file: null,
   models: [],
+  skills: null,
+  paletteRows: [],
+  paletteIndex: 0,
   clearKey: false,
   enabledOverlays: [],
 };
@@ -164,12 +167,20 @@ async function openProject(path) {
     return;
   }
   state.project = found[0].path;
-  $("title").textContent = found[0].title || found[0].path.split("/").pop();
+  const title = found[0].title || found[0].path.split("/").pop();
+  $("title").textContent = title;
   $("subtitle").textContent = "Status is read from disk every time";
   $("project-path").textContent = state.project;
   $("open-path").value = state.project;
   state.file = null;
   placeBookCard();
+  // Desktop: the taskbar should say which book is open. Best effort — the
+  // capability may not be granted.
+  try {
+    await api().window.getCurrentWindow().setTitle(`${title} — Open Storycraft`);
+  } catch {
+    /* title bar keeps the static name */
+  }
   const settings = await invoke("get_settings");
   settings.last_project = state.project;
   await invoke("save_settings", { settings });
@@ -218,13 +229,61 @@ function renderChapterLabels() {
   $("btn-burstiness").textContent = chapter ? `Measure chapter ${chapter}` : "Measure this chapter";
 }
 
+/** The skill that fills each board slot, from the orchestrator's spine. */
+const SLOT_SKILL = {
+  genre: "fiction-genre",
+  audience: "fiction-audience",
+  theme: "fiction-theme",
+  synopsis: "fiction-synopsis",
+  style: "fiction-style",
+  characters: "fiction-characters",
+  world: "fiction-world",
+  outline: "fiction-outline",
+  scenes: "fiction-scenes",
+  voice: "fiction-voiceprompt",
+  psych: "fiction-psych",
+  chapters: "fiction-writechapter",
+};
+
 function renderSlots(status) {
+  if (!state.project) {
+    $("slots").innerHTML =
+      '<li class="muted">Open a book folder to see the board.</li>';
+    return;
+  }
   $("slots").innerHTML = status.slots
-    .map(
-      (slot) =>
-        `<li><span>${slot.name}</span><span class="${slot.state}">${slot.state}</span></li>`
-    )
+    .map((slot) => {
+      const skill = SLOT_SKILL[slot.name];
+      const title = skill
+        ? `${slotHint(slot.name)} — click to run ${skill}`
+        : slotHint(slot.name);
+      return `<li data-skill="${skill || ""}" title="${esc(title)}"><span>${slot.name}</span><span class="${slot.state}">${slot.state}</span></li>`;
+    })
     .join("");
+  // The board is the map of what is missing, so let it fill itself.
+  $("slots").onclick = (ev) => {
+    const li = ev.target.closest("li[data-skill]");
+    if (li?.dataset.skill) runSkill(li.dataset.skill, [], state.status?.chapter || 1);
+  };
+}
+
+/** What each board slot actually is, on hover. */
+function slotHint(name) {
+  const hints = {
+    genre: "Wiki/Style/genre.md — genre, subgenre, tropes",
+    audience: "Wiki/Style/audience.md — who the book is for",
+    theme: "Wiki/Story/theme.md — the question the book argues with",
+    synopsis: "Wiki/Story/synopsis.md — the story contract",
+    style: "Wiki/Style/style_guide.md — POV, tense, prose rules",
+    characters: "Wiki/Characters/ — one sheet per character",
+    world: "Wiki/Locations, Organizations, Systems, Events — optional",
+    outline: "Wiki/Outline/outline.md — chapter by chapter",
+    scenes: "Scene beats for the current chapter",
+    voice: "Wiki/Style/voice_prompt.md — the POV voice firewall",
+    psych: "Interior pass for the current chapter",
+    chapters: "Drafted prose for the current chapter",
+  };
+  return hints[name] || name;
 }
 
 async function renderJobs() {
@@ -364,9 +423,9 @@ function parseRoutes(text) {
 async function renderLadder() {
   let extra = [];
   try {
-    const skills = await invoke("list_skills");
+    await loadSkills();
     const enabled = new Set(state.enabledOverlays || []);
-    extra = skills
+    extra = (state.skills || [])
       .filter((skill) => skill.overlay && enabled.has(skill.name))
       .map((skill) => [skill.name, `${skill.name} (overlay)`]);
   } catch {
@@ -444,6 +503,163 @@ async function refreshAuth() {
   }
 }
 
+/**
+ * Command palette: every skill in the pack, filtered as you type, run on
+ * Enter. Overlay skills stay hidden until they are enabled in Settings.
+ */
+function paletteSkills(query) {
+  const enabled = new Set(state.enabledOverlays || []);
+  const needle = query.trim().toLowerCase();
+  return (state.skills || [])
+    .filter((skill) => !skill.overlay || enabled.has(skill.name))
+    .filter(
+      (skill) =>
+        !needle ||
+        skill.name.toLowerCase().includes(needle) ||
+        (skill.description || "").toLowerCase().includes(needle)
+    )
+    .slice(0, 60);
+}
+
+function renderPalette(query) {
+  const rows = paletteSkills(query);
+  state.paletteRows = rows;
+  if (state.paletteIndex >= rows.length) state.paletteIndex = 0;
+  $("palette-list").innerHTML =
+    rows
+      .map((skill, index) => {
+        const tag = skill.local ? '<span class="tag">on device</span>' : "";
+        return `<li data-index="${index}"${index === state.paletteIndex ? ' aria-selected="true"' : ""}>
+          <span class="name">${esc(skill.name)} ${tag}</span>
+          <span class="desc">${esc(skill.description || "")}</span>
+        </li>`;
+      })
+      .join("") || '<li class="muted">No skill matches.</li>';
+  const active = $("palette-list").querySelector('li[aria-selected="true"]');
+  if (active) active.scrollIntoView({ block: "nearest" });
+  $("palette-hint").textContent = `${rows.length} of ${(state.skills || []).length} skills · ↑↓ to choose · Enter to run · Esc to close`;
+}
+
+async function loadSkills() {
+  if (state.skills?.length) return;
+  try {
+    state.skills = await invoke("list_skills");
+  } catch {
+    state.skills = [];
+  }
+}
+
+async function openPalette() {
+  if (!state.project) {
+    toast("Open a book folder first");
+    return;
+  }
+  await loadSkills();
+  state.paletteIndex = 0;
+  $("palette").classList.remove("hidden");
+  $("palette-input").value = "";
+  renderPalette("");
+  $("palette-input").focus();
+}
+
+function closePalette() {
+  $("palette").classList.add("hidden");
+}
+
+function runPaletteSelection() {
+  const skill = state.paletteRows?.[state.paletteIndex];
+  if (!skill) return;
+  closePalette();
+  runSkill(skill.name, [], state.status?.chapter || 1);
+}
+
+function bindPalette() {
+  $("btn-palette").onclick = openPalette;
+  const input = $("palette-input");
+  input.addEventListener("input", () => {
+    state.paletteIndex = 0;
+    renderPalette(input.value);
+  });
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      const rows = state.paletteRows || [];
+      if (!rows.length) return;
+      const step = ev.key === "ArrowDown" ? 1 : -1;
+      state.paletteIndex = (state.paletteIndex + step + rows.length) % rows.length;
+      renderPalette(input.value);
+      return;
+    }
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      runPaletteSelection();
+      return;
+    }
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closePalette();
+    }
+  });
+  $("palette-list").onclick = (ev) => {
+    const li = ev.target.closest("li[data-index]");
+    if (!li) return;
+    state.paletteIndex = Number(li.dataset.index);
+    runPaletteSelection();
+  };
+}
+
+/** Ctrl+1..5 switch views, in the order they appear in the nav. */
+const VIEW_KEYS = ["home", "book", "write", "edit", "settings"];
+
+/**
+ * Desktop keyboard: view switching, the board, the job card. Every binding
+ * mirrors a button that is already on screen.
+ */
+function bindShortcuts() {
+  document.addEventListener("keydown", (ev) => {
+    const mod = ev.ctrlKey || ev.metaKey;
+    const key = ev.key.toLowerCase();
+    if (mod && VIEW_KEYS[Number(ev.key) - 1]) {
+      ev.preventDefault();
+      showView(VIEW_KEYS[Number(ev.key) - 1]);
+      return;
+    }
+    if (mod && key === "k") {
+      ev.preventDefault();
+      openPalette();
+      return;
+    }
+    if (mod && key === "r") {
+      ev.preventDefault();
+      refreshAll();
+      return;
+    }
+    if (mod && key === "o") {
+      ev.preventDefault();
+      $("btn-open").click();
+      return;
+    }
+    if (mod && ev.key === "Enter") {
+      ev.preventDefault();
+      $("btn-next").click();
+      return;
+    }
+    if (mod && key === "s") {
+      ev.preventDefault();
+      if (!$("btn-save-job").classList.contains("hidden")) $("btn-save-job").click();
+      return;
+    }
+    if (ev.key === "Escape") {
+      if (!$("palette").classList.contains("hidden")) {
+        closePalette();
+        return;
+      }
+      if (!$("job-card").classList.contains("hidden")) $("job-card").classList.add("hidden");
+    }
+  });
+}
+
 async function main() {
   if (!api()) {
     toast("Tauri bridge missing — open this UI from the desktop app");
@@ -453,6 +669,8 @@ async function main() {
     btn.addEventListener("click", () => showView(btn.dataset.view));
   });
   placeBookCard();
+  bindPalette();
+  bindShortcuts();
   $("btn-open").onclick = async () => {
     // Hand the chooser the open book (or the last one) so it does not land on
     // Recents, which is useless for a book kept deep in a home directory.

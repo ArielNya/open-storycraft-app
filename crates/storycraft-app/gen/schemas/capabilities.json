@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"main window IPC","local":true,"windows":["main"],"permissions":["core:default","core:event:default","dialog:default","notification:default","opener:default"]}}
+{"default":{"identifier":"default","description":"main window IPC","local":true,"windows":["main"],"permissions":["core:default","core:event:default","dialog:default","notification:default","opener:default","core:window:allow-set-title","core:window:allow-title"]}}

@@ -33,7 +33,8 @@ body {
   color: var(--ink);
 }
 
-.top { flex: none; padding: 12px 12px 4px; }
+.top { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 12px 4px; }
+.top button { flex: none; min-height: 36px; font-size: 13px; }
 .eyebrow { margin: 0; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }
 h1 { margin: 4px 0 0; font-size: 22px; }
 h2 { margin: 0 0 8px; font-size: 15px; }
@@ -69,9 +70,18 @@ button {
   border-radius: 10px;
   padding: 0 12px;
   font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 button.primary { background: var(--accent); color: #1a1208; border-color: transparent; font-weight: 650; }
-button:disabled { opacity: 0.45; }
+button:disabled { opacity: 0.45; cursor: default; }
+button:not(:disabled):hover { background: #342c22; border-color: #4a4032; }
+button.primary:not(:disabled):hover { background: #e29a4c; }
+button:not(:disabled):active { transform: translateY(1px); }
+
+/* Keyboard users get a visible ring; pointer users do not. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent); color: #1a1208; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .row button { flex: 1; }
 
@@ -88,6 +98,10 @@ button:disabled { opacity: 0.45; }
   padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
   font-size: 12px;
 }
+/* Slots double as the button that fills them. */
+.slots li[data-skill] { cursor: pointer; transition: background-color 120ms ease; }
+.slots li[data-skill]:hover { background: #262019; }
+.slots li[data-skill]:hover span:first-child { color: var(--accent); }
 .slots .yes { color: var(--yes); }
 .slots .partial { color: var(--partial); }
 .slots .no { color: var(--no); }
@@ -100,9 +114,21 @@ button:disabled { opacity: 0.45; }
   cursor: pointer;
 }
 .list li:last-child { border-bottom: 0; }
+.list li:hover { background: #262019; }
 .list li.selected { color: var(--accent); }
+.list li.selected:hover { background: #2b2318; }
 /* Long file trees must not push the preview off screen. */
 .list.scroll { max-height: 28vh; overflow-y: auto; }
+
+/* Thin dark scrollbars, since the webview paints its own chrome. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #3a3228; border-radius: 6px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #4d4234; background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 .md {
   white-space: pre-wrap;
@@ -118,6 +144,9 @@ button:disabled { opacity: 0.45; }
 label { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 13px; color: var(--muted); }
 label.check { flex-direction: row; align-items: center; gap: 8px; }
 label.check input { min-height: auto; width: 18px; }
+
+textarea:hover,
+input:hover, select:hover { border-color: #4a4032; }
 
 textarea,
 input, select {
@@ -176,8 +205,159 @@ select option { background: var(--field); color: var(--ink); }
 .pill.rejected { color: var(--muted); }
 .code { font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 0.12em; }
 
+.keys { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.keys li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.keys li:last-child { border-bottom: 0; }
+.keys span { color: var(--muted); }
+kbd {
+  font: 12px/1.6 ui-monospace, monospace;
+  background: var(--field); border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 6px; color: var(--ink);
+}
+
+/* Command palette: every skill in the pack, filtered as you type. */
+.palette {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 24px));
+  max-height: min(62vh, 520px);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.palette input {
+  min-height: 48px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: #191410;
+  font-size: 15px;
+}
+.palette input:focus-visible { outline: none; }
+#palette-list { margin: 0; padding: 6px; overflow-y: auto; }
+#palette-list li {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border-bottom: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+#palette-list li[aria-selected="true"] { background: #2b2318; }
+#palette-list .name { font-size: 14px; }
+#palette-list .desc { font-size: 12px; color: var(--muted); line-height: 1.35; }
+#palette-list .tag { font-size: 11px; color: var(--accent); }
+#palette-hint {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
 .toast {
   position: fixed; top: 12px; left: 12px; right: 12px;
   background: #3a2418; border: 1px solid var(--accent);
   border-radius: 10px; padding: 10px 12px; z-index: 6;
+}
+
+/* ---------------------------------------------------------------------------
+   Desktop shell. Under 720px this is the phone layout above: fixed header, one
+   scrolling column, nav along the bottom. At 720px and up the nav becomes a
+   sidebar and the views get the width to lay their cards out properly.
+   --------------------------------------------------------------------------- */
+@media (min-width: 720px) {
+  body {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .top { grid-column: 1 / -1; padding: 14px 22px 10px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 24px; }
+
+  .bottom {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    padding: 10px;
+    background: #14110e;
+    border-top: 0;
+    border-right: 1px solid var(--line);
+  }
+  .bottom button {
+    justify-content: flex-start;
+    min-height: 40px;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    text-align: left;
+  }
+  .bottom button:hover { background: #211b14; }
+  .bottom button.active { background: #241d15; color: var(--accent); }
+
+  .view {
+    grid-column: 2;
+    grid-row: 2;
+    padding: 18px 22px 22px;
+    gap: 14px;
+  }
+
+  /* Home: status and jobs side by side once there is room for both. */
+  #view-home {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    align-content: start;
+  }
+  #card-status, #card-book { align-self: start; }
+  .slots { grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); }
+
+  /* Book: the file list and the preview, each scrolling on its own. */
+  #view-book {
+    display: grid;
+    grid-template-areas: "bible bible" "files preview";
+    grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: start;
+  }
+  #card-bible { grid-area: bible; }
+  #card-files {
+    grid-area: files;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #card-preview {
+    grid-area: preview;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #files { max-height: none; flex: 1 1 auto; }
+  #file-preview { max-height: none; flex: 1 1 auto; }
+
+  /* Reading-width columns for the text-heavy views. */
+  #view-write, #view-edit, #view-settings { max-width: 880px; }
+
+  /* The job card becomes a panel in the corner instead of a sheet across the
+     bottom of a phone-sized window. */
+  .job-card {
+    left: auto;
+    right: 22px;
+    bottom: 22px;
+    width: 440px;
+    max-height: min(72vh, 640px);
+  }
+  .toast { left: auto; right: 22px; top: 18px; max-width: 440px; }
+  .md { max-height: 42vh; }
+  #job-preview { max-height: 38vh; }
 }

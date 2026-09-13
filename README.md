@@ -8,14 +8,16 @@ The long-form design notes are in [OPEN_STORYCRAFT_APP_PLAN.md](OPEN_STORYCRAFT_
 
 ## What works today
 
-- **Status board** — twelve spine slots, each `yes` / `partial` / `no`, plus a `Next:` skill and the reason it is next.
+- **Status board** — twelve spine slots, each `yes` / `partial` / `no`, plus a `Next:` skill and the reason it is next. Hover a slot to see the file behind it; click it to run the skill that fills it.
 - **Job cards** — every skill run streams into a preview. Nothing touches the Wiki until you save it; `Diff` and `Reject` are there for the change you did not want.
 - **Book view** — file list and preview for the whole `Wiki/` and `Chapters/`, with the current file opened for you.
 - **Write view** — chapters listed from the outline, each with a `Draft` button.
 - **Edit view** — the ladder (cold read, dev edit, style review, AI-tells, prose, line, filter words, fragments, nominalizations, kill passes) plus the local burstiness report.
 - **Storybible** — write the whole book out as one portable `storybible.md`, or unpack one into a book folder. See [Storybible](#storybible).
+- **Command palette** — `Ctrl+K` lists every skill in the pack with its one-line description, filters as you type, marks the ones that run on device, and runs the one you pick. It is how you reach the skills the board does not recommend.
 - **Model picker** — the settings screen asks your provider what it serves and offers it in a dropdown. See [Configuring a provider](#configuring-a-provider).
 - **API key in the OS keyring** — never in the settings file, never sent back to the page. See [Where the key lives](#where-the-key-lives).
+- **Desktop shell** — a sidebar that replaces the bottom bar past 720px, cards that use the width (status and jobs side by side, file list beside the preview), a job panel in the corner instead of a sheet across the bottom, hover/focus states, and keyboard shortcuts. Under 720px it is the phone layout: one column, nav along the bottom.
 - **Sideload builds** — desktop binary, `.deb`, and a signed Android APK.
 
 Not here yet: Android Keystore-backed encryption for the key (Android uses app-private storage), a keyring entry for the OAuth tokens, iOS, and the world-pack UI (the world skills run, the board slot is there, but there is no world browser).
@@ -206,6 +208,22 @@ cargo doc --workspace --no-deps      # broken doc links are denied
 ```
 
 Fixtures under `crates/storycraft-core/tests/fixtures/` include a planned book (`planning-done`) and a bible-only folder (`bible-only`).
+
+## Keyboard
+
+| Keys | Does |
+|---|---|
+| `Ctrl+1` … `Ctrl+5` | Home / Book / Write / Edit / Settings |
+| `Ctrl+R` | Re-read the board from disk |
+| `Ctrl+Enter` | Run the recommended next skill |
+| `Ctrl+K` | Run any skill (command palette) |
+| `Ctrl+O` | Open a book folder |
+| `Ctrl+S` | Save the preview into the Wiki |
+| `Esc` | Close the job card |
+
+They are listed in Settings → Shortcuts, and the buttons they mirror carry the hint in their tooltip.
+
+The shell is responsive rather than fixed: past 720px the nav becomes a left sidebar and the views lay their cards out in columns; under it you get the phone layout, which is what the Android build always sees. The desktop window opens at 980×700 and is clamped to the monitor work area at startup (`crates/storycraft-app/src/window.rs`).
 
 ## Building the APK
 

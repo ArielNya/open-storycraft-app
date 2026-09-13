@@ -1,12 +1,16 @@
 {
   "identifier": "default",
   "description": "main window IPC",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:event:default",
     "dialog:default",
     "notification:default",
-    "opener:default"
+    "opener:default",
+    "core:window:allow-set-title",
+    "core:window:allow-title"
   ]
 }

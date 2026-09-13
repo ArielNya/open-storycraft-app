@@ -8,9 +8,12 @@
   </head>
   <body>
     <header class="top">
-      <p class="eyebrow">Open Storycraft</p>
-      <h1 id="title">No book open</h1>
-      <p id="subtitle" class="muted">Pick a folder that contains Wiki/</p>
+      <div>
+        <p class="eyebrow">Open Storycraft</p>
+        <h1 id="title">No book open</h1>
+        <p id="subtitle" class="muted">Pick a folder that contains Wiki/</p>
+      </div>
+      <button id="btn-palette" type="button" title="Run any skill (Ctrl+K)">Run a skill</button>
     </header>
 
     <main id="view-home" class="view">
@@ -19,19 +22,19 @@
           <h2>Status <span id="status-chapter" class="chip"></span></h2>
           <div class="row actions">
             <button id="btn-spark" type="button">Spark</button>
-            <button id="btn-refresh" type="button">Refresh</button>
+            <button id="btn-refresh" type="button" title="Re-read the board from disk (Ctrl+R)">Refresh</button>
           </div>
         </div>
         <ul id="slots" class="slots"></ul>
-        <button id="btn-next" class="primary" type="button" disabled>Next</button>
+        <button id="btn-next" class="primary" type="button" title="Run the next skill (Ctrl+Enter)" disabled>Next</button>
       </section>
-      <section class="card">
+      <section class="card" id="card-jobs">
         <h2>Jobs</h2>
         <ul id="jobs" class="list scroll"></ul>
       </section>
       <section class="card" id="card-book">
         <h2>Book</h2>
-        <button id="btn-open" class="primary" type="button">Open book folder</button>
+        <button id="btn-open" class="primary" type="button" title="Open a book folder (Ctrl+O)">Open book folder</button>
         <label>Or type a path
           <input id="open-path" type="text" spellcheck="false" placeholder="/home/you/Books/salt-ledger" />
         </label>
@@ -51,11 +54,11 @@
         </div>
         <p id="bible-state" class="muted path"></p>
       </section>
-      <section class="card">
+      <section class="card" id="card-files">
         <h2>Files</h2>
         <ul id="files" class="list scroll"></ul>
       </section>
-      <section class="card">
+      <section class="card" id="card-preview">
         <h2>Preview</h2>
         <pre id="file-preview" class="md"></pre>
       </section>
@@ -158,6 +161,17 @@
         </p>
       </section>
       <section class="card">
+        <h2>Shortcuts</h2>
+        <ul class="keys">
+          <li><span>Switch view</span><kbd>Ctrl</kbd> <kbd>1</kbd>–<kbd>5</kbd></li>
+          <li><span>Refresh the board</span><kbd>Ctrl</kbd> <kbd>R</kbd></li>
+          <li><span>Run the next skill</span><kbd>Ctrl</kbd> <kbd>Enter</kbd></li>
+          <li><span>Open a book folder</span><kbd>Ctrl</kbd> <kbd>O</kbd></li>
+          <li><span>Save the preview</span><kbd>Ctrl</kbd> <kbd>S</kbd></li>
+          <li><span>Close the job card</span><kbd>Esc</kbd></li>
+        </ul>
+      </section>
+      <section class="card">
         <h2>Sign in with xAI (community OAuth)</h2>
         <p class="muted">
           SuperGrok / X Premium+ is a consumer subscription. It is not console API billing.
@@ -181,12 +195,19 @@
       <pre id="job-preview" class="md"></pre>
       <pre id="job-diff" class="md diff hidden"></pre>
       <div class="row">
-        <button id="btn-save-job" class="primary" type="button">Save to Wiki</button>
+        <button id="btn-save-job" class="primary" type="button" title="Write the preview into the Wiki (Ctrl+S)">Save to Wiki</button>
         <button id="btn-diff-job" type="button">Diff</button>
         <button id="btn-reject-job" type="button">Reject</button>
-        <button id="btn-close-job" type="button">Close</button>
+        <button id="btn-close-job" type="button" title="Close (Esc)">Close</button>
       </div>
     </section>
+
+    <div id="palette" class="palette hidden" role="dialog" aria-modal="true" aria-label="Run a skill">
+      <input id="palette-input" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Run a skill — type to filter" />
+      <ul id="palette-list" class="list"></ul>
+      <p id="palette-hint" class="muted"></p>
+    </div>
 
     <p id="toast" class="toast hidden"></p>
 

@@ -47,6 +47,8 @@ pub struct SkillInfo {
     pub name: String,
     pub description: String,
     pub overlay: bool,
+    /// Runs on device: no provider, no key, no tokens.
+    pub local: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -345,6 +347,7 @@ pub fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, AppError> {
         .iter()
         .map(|skill| SkillInfo {
             overlay: storycraft_core::is_overlay(&skill.name),
+            local: storycraft_tools::is_local_tool(&skill.name),
             name: skill.name.clone(),
             description: skill.description.clone(),
         })
