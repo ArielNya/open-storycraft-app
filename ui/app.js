@@ -21,6 +21,7 @@ const state = {
   jobId: null,
   file: null,
   models: [],
+  clearKey: false,
   enabledOverlays: [],
 };
 
@@ -60,7 +61,11 @@ async function loadSettings() {
   const s = await invoke("get_settings");
   $("set-provider").value = s.provider;
   $("set-base").value = s.base_url;
-  $("set-key").value = s.api_key || "";
+  // The key is write-only: the host never sends it back, so the field starts
+  // empty and only ever carries a new value up.
+  $("set-key").value = "";
+  state.clearKey = false;
+  renderKeyState(s);
   $("set-style").value = s.api_style;
   $("set-model").value = s.model;
   $("set-cheap").value = s.cheap_model || "";
@@ -69,6 +74,7 @@ async function loadSettings() {
     .map(([skill, model]) => `${skill}=${model}`)
     .join("\n");
   $("set-skills").value = s.skills_dir || "";
+  state.secretBackendLabel = s.secret_backend_label || "the secret store";
   $("models-state").textContent = "Paste a URL and key above, then load what the provider offers.";
   fillModelPickers([], false);
   state.enabledOverlays = s.enabled_overlays || [];
@@ -81,6 +87,20 @@ async function loadSettings() {
   await refreshAuth();
 }
 
+/**
+ * Where the API key lives, in words. The key itself never reaches the page.
+ */
+function renderKeyState(settings) {
+  const where = settings.secret_backend_label || state.secretBackendLabel || "the secret store";
+  if (state.clearKey) {
+    $("key-state").textContent = "The stored key will be forgotten when you save.";
+    return;
+  }
+  $("key-state").textContent = settings.has_api_key
+    ? `A key is stored in ${where}. Type a new one to replace it.`
+    : `No key stored yet. It will go to ${where}.`;
+}
+
 /** The settings form as the host expects it. Unsaved edits included. */
 async function collectSettings() {
   const current = await invoke("get_settings");
@@ -89,7 +109,8 @@ async function collectSettings() {
     last_project: state.project,
     provider: $("set-provider").value,
     base_url: $("set-base").value.trim(),
-    api_key: $("set-key").value || null,
+    api_key: $("set-key").value.trim() || null,
+    clear_api_key: state.clearKey,
     api_style: $("set-style").value,
     model: $("set-model").value.trim(),
     cheap_model: $("set-cheap").value.trim() || null,
@@ -105,7 +126,11 @@ async function collectSettings() {
 async function saveSettings() {
   const next = await collectSettings();
   state.enabledOverlays = next.enabled_overlays;
-  await invoke("save_settings", { settings: next });
+  const saved = await invoke("save_settings", { settings: next });
+  // The key is now in the secret store, not in the form.
+  $("set-key").value = "";
+  state.clearKey = false;
+  renderKeyState(saved);
   if (state.project) await renderLadder();
   toast("Settings saved");
 }
@@ -462,6 +487,12 @@ async function main() {
   };
   $("btn-save-settings").onclick = saveSettings;
   $("btn-models").onclick = loadModels;
+  // Marked here, applied by Save, like every other field on this screen.
+  $("btn-key-clear").onclick = () => {
+    state.clearKey = true;
+    $("set-key").value = "";
+    renderKeyState({ has_api_key: false });
+  };
   $("set-model-pick").onchange = (ev) => {
     if (ev.target.value) $("set-model").value = ev.target.value;
   };

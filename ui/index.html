@@ -97,8 +97,12 @@
           <input id="set-base" type="url" spellcheck="false" />
         </label>
         <label>API key
-          <input id="set-key" type="password" autocomplete="off" />
+          <input id="set-key" type="password" autocomplete="off" placeholder="paste to set or replace" />
         </label>
+        <p id="key-state" class="muted path"></p>
+        <div class="row">
+          <button id="btn-key-clear" type="button">Forget stored key</button>
+        </div>
         <label>API style
           <select id="set-style">
             <option value="chat_completions">chat_completions</option>

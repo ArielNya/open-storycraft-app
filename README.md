@@ -15,9 +15,10 @@ The long-form design notes are in [OPEN_STORYCRAFT_APP_PLAN.md](OPEN_STORYCRAFT_
 - **Edit view** — the ladder (cold read, dev edit, style review, AI-tells, prose, line, filter words, fragments, nominalizations, kill passes) plus the local burstiness report.
 - **Storybible** — write the whole book out as one portable `storybible.md`, or unpack one into a book folder. See [Storybible](#storybible).
 - **Model picker** — the settings screen asks your provider what it serves and offers it in a dropdown. See [Configuring a provider](#configuring-a-provider).
+- **API key in the OS keyring** — never in the settings file, never sent back to the page. See [Where the key lives](#where-the-key-lives).
 - **Sideload builds** — desktop binary, `.deb`, and a signed Android APK.
 
-Not here yet: OS keyring storage for the API key (see [Where the key lives](#where-the-key-lives)), iOS, and the world-pack UI (the world skills run, the board slot is there, but there is no world browser).
+Not here yet: Android Keystore-backed encryption for the key (Android uses app-private storage), a keyring entry for the OAuth tokens, iOS, and the world-pack UI (the world skills run, the board slot is there, but there is no world browser).
 
 ## Requirements
 
@@ -49,12 +50,14 @@ The runtime `.so` is enough to *run*; only linking needs the `-dev` package.
 # desktop, dev
 cargo run -p storycraft-app
 
-# desktop, release binary
-cargo build --release -p storycraft-app     # target/release/open-storycraft
+# desktop, release binary -> target/release/open-storycraft
+cd crates/storycraft-app && cargo tauri build --no-bundle
 
 # desktop, installable package
 cd crates/storycraft-app && cargo tauri build --bundles deb
 ```
+
+Build releases through the tauri CLI. It adds the `tauri/custom-protocol` feature, which is what a release build is meant to have — the equivalent plain cargo command is `cargo build --release -p storycraft-app --features tauri/custom-protocol`.
 
 The front end is not bundled or transpiled — `ui/index.html`, `ui/app.css`, `ui/app.js` are loaded as they are, and they are compiled into the binary at build time. Edit them, then rebuild.
 
@@ -63,8 +66,9 @@ The front end is not bundled or transpiled — `ui/index.html`, `ui/app.css`, `u
 Resolution order (`crates/storycraft-app/src/paths.rs`):
 
 1. `skills_dir` from settings, if set.
-2. The bundled resources — `<resource dir>/skills/fiction-genre/SKILL.md`, which is how the `.deb` and the APK ship the pack.
-3. A walk up from the working directory for `open-storycraft/` or `skills/`.
+2. On Android, the pack embedded in the library at build time and extracted into app storage on first use — APK assets are not files, so `std::fs` cannot read them where Tauri points resources. The extraction carries a version marker, so installing a new app version replaces it and skills dropped from the pack do not linger.
+3. The bundled resources — `<resource dir>/skills/fiction-genre/SKILL.md`, which is how the `.deb` ships the pack.
+4. A walk up from the working directory for `open-storycraft/` or `skills/`.
 
 So a release binary run from the repo root finds the vendored pack, and `STORYCRAFT_SKILLS=/path/to/pack` overrides everything.
 
@@ -76,7 +80,7 @@ Settings live in the app config directory — `~/.config/dev.openstorycraft.app/
 |---|---|
 | Provider | `openai-compat`, `xai-apikey`, or `grok-oauth` (community OAuth, needs `Sign in`) |
 | Base URL | The base **including** `/v1`, e.g. `https://api.x.ai/v1`, `http://127.0.0.1:1234/v1` |
-| API key | Bearer token. Empty for local servers that do not want one |
+| API key | Bearer token, write-only in the form. Stored in the OS secret store, never in the settings file — see [Where the key lives](#where-the-key-lives) |
 | API style | `chat_completions` or `responses` (xAI prefers Responses) |
 | Model | Type an id, or pick one from the provider |
 | Cheap model | Optional. Editorial and kill-pass skills use it when set |
@@ -103,7 +107,27 @@ curl -s -H "Authorization: Bearer $STORYCRAFT_API_KEY" https://api.x.ai/v1/model
 
 ### Where the key lives
 
-The key is stored in plain text in the settings file above, which is written `0600` so only your user can read it. It is never logged, and the HTTP client marks the auth header sensitive. It is **not** in an OS keyring yet — that is the one gap against the plan's auth section, so treat that file like a credential.
+Not in the settings file. The settings hold everything else — URL, provider, model, budget — and none of it is secret. The API key goes to the OS secret store, and the app tells you which one it got:
+
+| Platform | Store |
+|---|---|
+| Linux | Secret Service (gnome-keyring, KWallet) |
+| macOS | Keychain |
+| Windows | Credential Manager |
+| Desktop with no keyring reachable (container, headless, minimal session) | `~/.config/dev.openstorycraft.app/api-key`, mode `0600`, and the settings screen says so instead of pretending |
+| Android | App-private storage inside the OS app sandbox — this build has no Android keyring backend |
+
+Details:
+
+- The key is **write-only** in the UI. The host never sends it back, so it cannot appear in the DOM, a devtools session, a screenshot, or a support paste. The field starts empty and only ever carries a new value up. `get_settings` reports `has_api_key` and `secret_backend`, never the key.
+- Saving an empty field leaves the stored key alone. **Forget stored key** marks it for removal and the next *Save settings* applies it.
+- A key typed into the form is used by **Load models from the API** immediately, before you save it — so you can test a key without storing it.
+- Upgrading from an older build: if `app.json` still has a plaintext `api_key`, the first launch lifts it into the secret store and rewrites the settings without it. A key already in the store wins, so a stale file cannot clobber a newer key.
+- `STORYCRAFT_SECRET_BACKEND=keyring|file` forces a backend. Useful on a headless server (`file`) or to prove the keyring path is really being used (`keyring`).
+- The value prints as `[redacted]` in every `Debug`/`Display` path and wipes its bytes when dropped.
+- Not covered by this yet: the xAI OAuth tokens in `~/.config/dev.openstorycraft.app/oauth.json` are still a `0600` file rather than a keyring entry.
+
+Other hardening on the same pass: the webview runs under a CSP that allows only same-origin scripts and styles (inline styles excepted, since the UI sets a few) and only IPC connections, with `object-src`, `base-uri`, `form-action` and `frame-ancestors` denied; plugin permissions are limited to the dialog, opener and notification plugins the UI actually uses; every path the webview hands back is validated before it is joined or written.
 
 ## Storybible
 
@@ -209,7 +233,7 @@ Keep the keystore and its password: Android refuses to install an update signed 
 
 ## Known limitations
 
-- The API key is on disk in plain text (`0600`), not in a keyring.
+- The xAI OAuth token file is `0600` on disk, not a keyring entry (the API key is in the keyring).
 - The bundle identifier `dev.openstorycraft.app` ends in `.app`; tauri warns about it. Harmless on Android and Linux, but changing it later changes the Android package name and the desktop config directory.
 - The APK ships `arm64-v8a` only unless you build more ABIs.
 - No CI configuration is checked in; the commands above are the gates.

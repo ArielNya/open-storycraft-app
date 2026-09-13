@@ -7,7 +7,9 @@ mod android;
 mod commands;
 mod error;
 mod host;
+mod pack_install;
 mod paths;
+mod secrets;
 mod settings;
 mod window;
 
@@ -38,6 +40,14 @@ pub fn run() {
         })
         .setup(|app| {
             window::fit_to_work_area(app.handle());
+            // Lift an API key written by an older build out of the settings file.
+            match secrets::SecretStore::open(app.handle())
+                .and_then(|store| settings::import_plaintext_key(app.handle(), &store))
+            {
+                Ok(true) => tracing::info!("plaintext API key migrated into the secret store"),
+                Ok(false) => {}
+                Err(err) => tracing::warn!(%err, "could not migrate a plaintext API key"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

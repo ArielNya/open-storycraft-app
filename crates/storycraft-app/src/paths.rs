@@ -21,6 +21,11 @@ pub(crate) fn settings_file(app: &AppHandle) -> Result<PathBuf, AppError> {
     Ok(config_dir(app)?.join("app.json"))
 }
 
+/// `{config}/api-key` — fallback home for the API key when no keyring answers.
+pub(crate) fn secret_file(app: &AppHandle) -> Result<PathBuf, AppError> {
+    Ok(config_dir(app)?.join("api-key"))
+}
+
 /// `{config}/oauth.json`
 pub(crate) fn oauth_file(app: &AppHandle) -> Result<PathBuf, AppError> {
     if let Some(custom) = std::env::var_os("STORYCRAFT_AUTH_FILE") {
@@ -30,9 +35,20 @@ pub(crate) fn oauth_file(app: &AppHandle) -> Result<PathBuf, AppError> {
 }
 
 /// Vendored skill pack: settings override, then bundled resources, then cwd walk.
+///
+/// Android gets its own first stop: APK assets are not files, so the pack is
+/// embedded in the library and extracted into app storage (see
+/// `crate::pack_install`).
 pub(crate) fn skills_dir(app: &AppHandle, override_dir: Option<&str>) -> Result<PathBuf, AppError> {
     if let Some(path) = override_dir {
         return Ok(PathBuf::from(path));
+    }
+    #[cfg(target_os = "android")]
+    {
+        let installed = crate::pack_install::ensure_pack(app)?;
+        if installed.join("fiction-genre/SKILL.md").is_file() {
+            return Ok(installed);
+        }
     }
     if let Ok(bundled) = app.path().resolve("skills", BaseDirectory::Resource) {
         if bundled.join("fiction-genre/SKILL.md").is_file() {
