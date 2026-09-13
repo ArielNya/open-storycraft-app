@@ -26,6 +26,17 @@ pub fn validate_preview(skill: &str, text: &str) -> Result<(), Error> {
                 ));
             }
         }
+        "fiction-storybible" => {
+            let docs = crate::bible::parse_storybible(trimmed)?;
+            if !docs.iter().any(|doc| doc.path == "Wiki/Style/genre.md") {
+                return Err(Error::InvalidPreview(
+                    "the bible has no genre document; the spine starts at genre".into(),
+                ));
+            }
+        }
+        "storybible-import" => {
+            crate::bible::parse_storybible(trimmed)?;
+        }
         _ => {}
     }
     Ok(())

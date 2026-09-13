@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use storycraft_core::{Catalog, pack_skill};
+use storycraft_core::{Catalog, is_overlay, pack_skill};
 
 fn library_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../open-storycraft")
@@ -22,6 +22,21 @@ fn indexes_craft_skills_from_frontmatter_only() {
     assert!(genre.description.to_ascii_lowercase().contains("genre"));
     assert!(genre.next_skill.as_deref() == Some("fiction-audience"));
     assert!(genre.requires.is_empty());
+}
+
+#[test]
+fn vendored_library_has_no_overlays() {
+    let catalog = Catalog::load(&library_dir()).expect("vendored library");
+    let overlays: Vec<&str> = catalog
+        .iter()
+        .filter(|skill| is_overlay(&skill.name))
+        .map(|skill| skill.name.as_str())
+        .collect();
+    assert!(
+        overlays.is_empty(),
+        "overlays must stay out of the vendored pack: {overlays:?}"
+    );
+    assert_eq!(catalog.iter_visible(&[]).count(), catalog.len());
 }
 
 #[test]

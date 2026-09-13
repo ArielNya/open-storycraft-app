@@ -15,6 +15,9 @@ pub enum SkillOutput {
     WikiFile(&'static str),
     /// `Wiki/Characters/<Name>.md` files split from the preview.
     CharactersDir,
+    /// Many files at once, each document naming its own destination in
+    /// frontmatter. Used by the storybible importer.
+    Bundle,
     /// Chapter-scoped scene plan.
     Scene,
     /// Chapter-scoped psych pass.
@@ -37,6 +40,8 @@ pub fn skill_output(skill: &str) -> SkillOutput {
         | "coldread"
         | "name-generator"
         | "town-generator" => SkillOutput::None,
+        "fiction-storybible" => SkillOutput::WikiFile("storybible.md"),
+        "storybible-import" => SkillOutput::Bundle,
         "fiction-genre" => SkillOutput::WikiFile("Wiki/Style/genre.md"),
         "fiction-audience" => SkillOutput::WikiFile("Wiki/Style/audience.md"),
         "fiction-theme" => SkillOutput::WikiFile("Wiki/Story/theme.md"),
@@ -70,7 +75,7 @@ pub fn resolve_output_path(
     chapter: u32,
 ) -> Option<String> {
     match skill_output(skill) {
-        SkillOutput::None | SkillOutput::Unknown => None,
+        SkillOutput::None | SkillOutput::Unknown | SkillOutput::Bundle => None,
         SkillOutput::WikiFile(path) => Some(path.to_owned()),
         SkillOutput::CharactersDir => Some("Wiki/Characters".to_owned()),
         SkillOutput::Scene => Some(match project {
@@ -109,7 +114,7 @@ fn rel_to_project(project: &ProjectRoot, path: &std::path::Path) -> Option<Strin
 #[must_use]
 pub fn requirement_satisfied(project: &ProjectRoot, required_skill: &str, chapter: u32) -> bool {
     match skill_output(required_skill) {
-        SkillOutput::None | SkillOutput::Unknown => true,
+        SkillOutput::None | SkillOutput::Unknown | SkillOutput::Bundle => true,
         SkillOutput::WikiFile(rel) => file_has_substance(&project.path().join(rel)),
         SkillOutput::CharactersDir => wiki_markdown_files(&project.wiki().join("Characters"))
             .iter()
@@ -240,6 +245,11 @@ fn frontmatter_name(fm: &str) -> Option<String> {
 }
 
 fn character_filename(name: &str) -> String {
+    format!("{}.md", slug_filename(name))
+}
+
+/// File-name-safe slug for a display name (`Kael Veyra` → `Kael_Veyra`).
+pub(crate) fn slug_filename(name: &str) -> String {
     let mut s = String::new();
     for c in name.trim().chars() {
         if c.is_whitespace() {
@@ -249,9 +259,8 @@ fn character_filename(name: &str) -> String {
         }
     }
     if s.is_empty() {
-        "character.md".to_owned()
+        "untitled".to_owned()
     } else {
-        s.push_str(".md");
         s
     }
 }

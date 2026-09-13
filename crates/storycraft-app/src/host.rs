@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 
 use storycraft_auth::{DeviceAuth, OAuthConfig, TokenStore};
 use storycraft_core::{
-    CHUNK_LINES, Catalog, Job, JobStatus, JobStore, Mode, NewJob, ProjectRoot, apply_chunk_edit,
-    build_chunk_prompt, discover, ensure_requires, find_chapter_prose, infer_chapter,
-    is_chunked_skill, merge_chunks, prepare_skill, resolve_output_path, split_lines,
-    validate_preview,
+    CHUNK_LINES, Catalog, Job, JobStatus, JobStore, Mode, ModelRouter, NewJob, ProjectRoot,
+    apply_chunk_edit, build_chunk_prompt, discover, ensure_requires, find_chapter_prose,
+    infer_chapter, is_chunked_skill, is_overlay, merge_chunks, overlay_allowed, prepare_skill,
+    resolve_output_path, split_lines, validate_preview,
 };
 use storycraft_llm::{ApiStyle, CancellationToken, OpenAiClient, ProviderConfig, Secret};
 use storycraft_tools::{GenerateOpts, is_local_tool};
@@ -60,6 +60,9 @@ pub(crate) async fn execute_run(
     let manifest = catalog
         .get(skill)
         .ok_or_else(|| storycraft_core::Error::SkillNotFound(skill.to_owned()))?;
+    if is_overlay(skill) && !overlay_allowed(skill, &settings.enabled_overlays) {
+        return Err(storycraft_core::Error::OverlayDisabled(skill.to_owned()).into());
+    }
     let project = resolve_project(project_path)?;
     let chapter = match (chapter, project.as_ref()) {
         (Some(n), _) => n,
@@ -87,12 +90,20 @@ pub(crate) async fn execute_run(
         );
     }
 
+    let router = ModelRouter::new(
+        settings.model.clone(),
+        settings.cheap_model.clone(),
+        settings.skill_models.clone(),
+    );
+    let model = router.model_for(skill).to_owned();
+    let budget = usize::try_from(settings.token_budget).unwrap_or(0);
     let (packed, prompt) = prepare_skill(
         manifest,
         &answers,
         project.as_ref(),
         chapter,
         output_path.as_deref(),
+        budget,
     )?;
     let mut job = store.create(NewJob {
         skill: skill.to_owned(),
@@ -101,14 +112,14 @@ pub(crate) async fn execute_run(
         answers,
         packed_context_hash: packed.hash,
         provider: settings.provider.clone(),
-        model: settings.model.clone(),
+        model,
         output_path,
     })?;
     snapshot_original(&store, &job)?;
     store.set_status(&mut job, JobStatus::Running)?;
     let _job_notice = android::JobNotice::start(app, &job);
 
-    let client = build_client(app, settings).await?;
+    let client = build_client(app, settings, &job.model).await?;
     let cancel = CancellationToken::new();
     let text = if is_chunked_skill(skill) {
         run_chunked(app, &store, &job, &client, &prompt, &cancel).await
@@ -165,7 +176,7 @@ fn snapshot_original(store: &JobStore, job: &Job) -> Result<(), AppError> {
         return Ok(());
     };
     if dest.is_file() {
-        let text = std::fs::read_to_string(&dest).map_err(|err| AppError::io(&dest, err))?;
+        let text = std::fs::read_to_string(&dest).map_err(|err| AppError::io(&dest, &err))?;
         store.write_original(&job.id, &text)?;
     }
     Ok(())
@@ -228,7 +239,7 @@ fn run_local(
                 project.ok_or_else(|| AppError::msg("burstiness-check needs a Wiki folder"))?;
             let path = find_chapter_prose(project, chapter)
                 .ok_or_else(|| AppError::msg(format!("no chapter prose for chapter {chapter}")))?;
-            let body = std::fs::read_to_string(&path).map_err(|err| AppError::io(&path, err))?;
+            let body = std::fs::read_to_string(&path).map_err(|err| AppError::io(&path, &err))?;
             let report = storycraft_tools::measure(&body);
             format!(
                 "# Burstiness\n\n- sentences: {}\n- paragraphs: {}\n- sentence variance: {} (mean {}, stdev {})\n- dialogue ratio: {}\n- interiority: {} ({})\n- longest opener run: {}\n",
@@ -272,6 +283,7 @@ fn run_local(
             }
             out
         }
+        "storybible-import" => storycraft_core::storybible_import_preview(store.root())?,
         other => return Err(AppError::msg(format!("not a local tool: {other}"))),
     };
     let mut job = store.create(NewJob {
@@ -292,12 +304,17 @@ fn run_local(
     Ok(job)
 }
 
-async fn build_client(app: &AppHandle, settings: &AppSettings) -> Result<OpenAiClient, AppError> {
+/// Provider client for `settings`, with the key or OAuth token attached.
+pub(crate) async fn build_client(
+    app: &AppHandle,
+    settings: &AppSettings,
+    model: &str,
+) -> Result<OpenAiClient, AppError> {
     let style: ApiStyle = settings
         .api_style
         .parse()
         .map_err(|err: storycraft_llm::Error| AppError::msg(err.to_string()))?;
-    let mut config = ProviderConfig::openai_compat(&settings.base_url, &settings.model);
+    let mut config = ProviderConfig::openai_compat(&settings.base_url, model);
     config.name = settings.provider.clone();
     config.api_style = style;
     config.api_key = match settings.provider.as_str() {

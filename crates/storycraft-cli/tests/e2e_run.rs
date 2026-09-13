@@ -41,6 +41,9 @@ fn run_req(server: &MockServer, skill: &str, path: PathBuf, commit: bool) -> Run
         api_key: Some("sk-mock".into()),
         api_style: ApiStyle::ChatCompletions,
         model: "mock".into(),
+        cheap_model: None,
+        routes: std::collections::BTreeMap::new(),
+        budget: 48_000,
         commit,
         auth_file: None,
     }
@@ -174,14 +177,15 @@ async fn writechapter_preview_targets_chapter_file() {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../crates/storycraft-core/tests/fixtures/planning-done");
     copy_dir(&src, tmp.path());
-    let job = execute_run(run_req(
+    let mut req = run_req(
         &server,
         "fiction-writechapter",
         tmp.path().to_path_buf(),
         false,
-    ))
-    .await
-    .unwrap();
+    );
+    req.cheap_model = Some("mini".into());
+    let job = execute_run(req).await.unwrap();
+    assert_eq!(job.model, "mock");
     assert_eq!(job.status, JobStatus::NeedsConfirm);
     assert_eq!(job.output_path.as_deref(), Some("Chapters/Chapter-001.md"));
     assert!(!tmp.path().join("Chapters/Chapter-001.md").exists());
@@ -228,14 +232,10 @@ async fn kill_pass_chunks_then_one_confirm() {
     )
     .unwrap();
 
-    let job = execute_run(run_req(
-        &server,
-        "kill-crutch",
-        tmp.path().to_path_buf(),
-        false,
-    ))
-    .await
-    .unwrap();
+    let mut req = run_req(&server, "kill-crutch", tmp.path().to_path_buf(), false);
+    req.cheap_model = Some("mini".into());
+    let job = execute_run(req).await.unwrap();
+    assert_eq!(job.model, "mini");
     assert_eq!(job.status, JobStatus::NeedsConfirm);
     assert_eq!(job.output_path.as_deref(), Some("Chapters/Chapter-001.md"));
     let preview = fs::read_to_string(
@@ -279,6 +279,9 @@ async fn burstiness_runs_locally_without_a_provider() {
         api_key: None,
         api_style: ApiStyle::ChatCompletions,
         model: "mock".into(),
+        cheap_model: None,
+        routes: std::collections::BTreeMap::new(),
+        budget: 48_000,
         commit: false,
         auth_file: None,
     })

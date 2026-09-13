@@ -19,6 +19,9 @@ const state = {
   project: null,
   status: null,
   jobId: null,
+  file: null,
+  models: [],
+  enabledOverlays: [],
 };
 
 function $(id) {
@@ -31,6 +34,18 @@ function toast(msg) {
   el.classList.remove("hidden");
   clearTimeout(toast._t);
   toast._t = setTimeout(() => el.classList.add("hidden"), 4000);
+}
+
+/** Tauri rejects with the serialized error string, not an Error. */
+function errText(err) {
+  return err && err.message ? err.message : String(err);
+}
+
+function esc(text) {
+  return String(text).replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]
+  );
 }
 
 function showView(name) {
@@ -48,16 +63,28 @@ async function loadSettings() {
   $("set-key").value = s.api_key || "";
   $("set-style").value = s.api_style;
   $("set-model").value = s.model;
+  $("set-cheap").value = s.cheap_model || "";
+  $("set-budget").value = s.token_budget || 48000;
+  $("set-routes").value = Object.entries(s.skill_models || {})
+    .map(([skill, model]) => `${skill}=${model}`)
+    .join("\n");
   $("set-skills").value = s.skills_dir || "";
+  $("models-state").textContent = "Paste a URL and key above, then load what the provider offers.";
+  fillModelPickers([], false);
+  state.enabledOverlays = s.enabled_overlays || [];
+  document.querySelectorAll("[data-overlay]").forEach((el) => {
+    el.checked = state.enabledOverlays.includes(el.dataset.overlay);
+  });
   if (s.last_project && !state.project) {
     await openProject(s.last_project);
   }
   await refreshAuth();
 }
 
-async function saveSettings() {
+/** The settings form as the host expects it. Unsaved edits included. */
+async function collectSettings() {
   const current = await invoke("get_settings");
-  const next = {
+  return {
     ...current,
     last_project: state.project,
     provider: $("set-provider").value,
@@ -65,14 +92,44 @@ async function saveSettings() {
     api_key: $("set-key").value || null,
     api_style: $("set-style").value,
     model: $("set-model").value.trim(),
+    cheap_model: $("set-cheap").value.trim() || null,
+    token_budget: Number($("set-budget").value) || 48000,
+    skill_models: parseRoutes($("set-routes").value),
+    enabled_overlays: [...document.querySelectorAll("[data-overlay]:checked")].map(
+      (el) => el.dataset.overlay
+    ),
     skills_dir: $("set-skills").value.trim() || null,
   };
+}
+
+async function saveSettings() {
+  const next = await collectSettings();
+  state.enabledOverlays = next.enabled_overlays;
   await invoke("save_settings", { settings: next });
+  if (state.project) await renderLadder();
   toast("Settings saved");
 }
 
+/**
+ * Home leads with the status board and the jobs list; the folder controls only
+ * come first while there is no book to show.
+ */
+function placeBookCard() {
+  const home = $("view-home");
+  const card = $("card-book");
+  if (state.project) home.append(card);
+  else home.prepend(card);
+}
+
 async function openProject(path) {
-  const found = await invoke("discover_projects", { start: path });
+  let found;
+  try {
+    found = await invoke("discover_projects", { start: path });
+  } catch (err) {
+    // discover_projects errors when the folder holds more than one book.
+    toast(errText(err));
+    return;
+  }
   if (!found.length) {
     toast("No Wiki/ folder there");
     return;
@@ -85,6 +142,9 @@ async function openProject(path) {
   $("title").textContent = found[0].title || found[0].path.split("/").pop();
   $("subtitle").textContent = "Status is read from disk every time";
   $("project-path").textContent = state.project;
+  $("open-path").value = state.project;
+  state.file = null;
+  placeBookCard();
   const settings = await invoke("get_settings");
   settings.last_project = state.project;
   await invoke("save_settings", { settings });
@@ -96,6 +156,8 @@ async function refreshAll() {
   const status = await invoke("get_status", { project: state.project, chapter: null, mode: "resume" });
   state.status = status;
   renderSlots(status);
+  renderBible();
+  renderChapterLabels();
   const next = $("btn-next");
   if (status.next_skill) {
     next.disabled = false;
@@ -105,6 +167,30 @@ async function refreshAll() {
     next.textContent = "Spine complete";
   }
   await Promise.all([renderJobs(), renderFiles(), renderChapters(), renderLadder()]);
+}
+
+/**
+ * The bible card: Write drafts one from the book, Import unpacks it into Wiki
+ * files. Import needs a storybible.md on disk, so it stays off without one.
+ */
+function renderBible() {
+  const bible = state.status?.storybible || null;
+  $("btn-bible-import").disabled = !bible;
+  $("bible-state").textContent = bible
+    ? `${bible} — Import writes its documents into this book folder.`
+    : "No storybible.md here yet. Write drafts one from the Wiki; Import unpacks a bible into Wiki files.";
+}
+
+/**
+ * Say which chapter the board is talking about. Scenes, psych, chapters and
+ * every editorial pass are chapter-scoped, and the board moves to the next
+ * chapter as soon as one is drafted.
+ */
+function renderChapterLabels() {
+  const chapter = state.status?.chapter;
+  $("status-chapter").textContent = chapter ? `chapter ${chapter}` : "";
+  $("edit-chapter").textContent = chapter ? `chapter ${chapter}` : "";
+  $("btn-burstiness").textContent = chapter ? `Measure chapter ${chapter}` : "Measure this chapter";
 }
 
 function renderSlots(status) {
@@ -118,12 +204,16 @@ function renderSlots(status) {
 
 async function renderJobs() {
   const jobs = await invoke("list_jobs", { project: state.project });
-  $("jobs").innerHTML = jobs
-    .slice()
-    .reverse()
-    .slice(0, 12)
-    .map((job) => `<li data-id="${job.id}"><span>${job.skill}</span><span class="muted">${job.status}</span></li>`)
-    .join("") || "<li class='muted'>No jobs yet</li>";
+  $("jobs").innerHTML =
+    jobs
+      .slice()
+      .reverse()
+      .slice(0, 12)
+      .map(
+        (job) =>
+          `<li data-id="${esc(job.id)}"><span>${esc(job.skill)}</span><span class="pill ${esc(job.status)}">${esc(job.status)}</span></li>`
+      )
+      .join("") || "<li class='muted'>No jobs yet</li>";
   $("jobs").onclick = (ev) => {
     const li = ev.target.closest("li[data-id]");
     if (li) openJob(li.dataset.id);
@@ -132,16 +222,33 @@ async function renderJobs() {
 
 async function renderFiles() {
   const files = await invoke("list_files", { project: state.project });
-  $("files").innerHTML = files
-    .filter((f) => f.kind === "file")
-    .map((f) => `<li data-rel="${f.rel}">${f.rel}</li>`)
-    .join("");
-  $("files").onclick = async (ev) => {
+  const entries = files.filter((f) => f.kind === "file");
+  $("files").innerHTML =
+    entries
+      .map((f) => `<li data-rel="${esc(f.rel)}">${esc(f.rel)}</li>`)
+      .join("") || "<li class='muted'>No files</li>";
+  $("files").onclick = (ev) => {
     const li = ev.target.closest("li[data-rel]");
-    if (!li) return;
-    const text = await invoke("read_project_file", { project: state.project, rel: li.dataset.rel });
-    $("file-preview").textContent = text;
+    if (li) showFile(li.dataset.rel);
   };
+  // Always show something: re-open the current file, else the first one.
+  const wanted = entries.some((f) => f.rel === state.file) ? state.file : entries[0]?.rel;
+  if (wanted) await showFile(wanted);
+}
+
+async function showFile(rel) {
+  state.file = rel;
+  $("files")
+    .querySelectorAll("li[data-rel]")
+    .forEach((li) => li.classList.toggle("selected", li.dataset.rel === rel));
+  try {
+    $("file-preview").textContent = await invoke("read_project_file", {
+      project: state.project,
+      rel,
+    });
+  } catch (err) {
+    $("file-preview").textContent = errText(err);
+  }
 }
 
 async function renderChapters() {
@@ -165,10 +272,88 @@ async function renderChapters() {
   };
 }
 
-function renderLadder() {
-  $("ladder").innerHTML = LADDER.map(
-    ([skill, label]) => `<li data-skill="${skill}">${label}<button type="button" data-run="${skill}">Run</button></li>`
-  ).join("");
+/**
+ * Fill a picker from a fetched model list. The text input stays the source of
+ * truth: choosing an option copies into it, and a hand-typed id the provider
+ * does not list is kept, marked as such.
+ */
+function fillModelPicker(pickId, inputId, models, loaded) {
+  const pick = $(pickId);
+  const current = $(inputId).value.trim();
+  const options = [];
+  if (current && !models.includes(current)) {
+    const note = loaded ? "not in the provider list" : "saved";
+    options.push(
+      `<option value="${esc(current)}" selected>${esc(current)} — ${note}</option>`
+    );
+  }
+  for (const id of models) {
+    options.push(
+      `<option value="${esc(id)}"${id === current ? " selected" : ""}>${esc(id)}</option>`
+    );
+  }
+  pick.innerHTML =
+    options.length > 0 ? options.join("") : '<option value="">No models returned</option>';
+}
+
+function fillModelPickers(models, loaded) {
+  fillModelPicker("set-model-pick", "set-model", models, loaded);
+  fillModelPicker("set-cheap-pick", "set-cheap", models, loaded);
+}
+
+/** Ask the provider what it serves, using the URL and key in the form. */
+async function loadModels() {
+  const settings = await collectSettings();
+  const button = $("btn-models");
+  button.disabled = true;
+  $("models-state").textContent = `Loading models from ${settings.base_url}…`;
+  try {
+    const models = await invoke("list_models", { settings });
+    state.models = models;
+    fillModelPickers(models, true);
+    $("models-state").textContent = `${models.length} models from ${settings.base_url}`;
+  } catch (err) {
+    // Keep the last good list: a failed refresh must not throw away options
+    // that already worked.
+    fillModelPickers(state.models, state.models.length > 0);
+    $("models-state").textContent = `Could not list models: ${errText(err)}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function parseRoutes(text) {
+  const out = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const i = trimmed.indexOf("=");
+    if (i <= 0) continue;
+    const skill = trimmed.slice(0, i).trim();
+    const model = trimmed.slice(i + 1).trim();
+    if (skill && model) out[skill] = model;
+  }
+  return out;
+}
+
+async function renderLadder() {
+  let extra = [];
+  try {
+    const skills = await invoke("list_skills");
+    const enabled = new Set(state.enabledOverlays || []);
+    extra = skills
+      .filter((skill) => skill.overlay && enabled.has(skill.name))
+      .map((skill) => [skill.name, `${skill.name} (overlay)`]);
+  } catch {
+    extra = [];
+  }
+  const rows = LADDER.concat(extra);
+  $("ladder").innerHTML = rows
+    .map(
+      ([skill, label]) =>
+        `<li data-skill="${skill}">${label}<button type="button" data-run="${skill}">Run</button></li>`
+    )
+    .join("");
   $("ladder").onclick = (ev) => {
     const btn = ev.target.closest("[data-run]");
     if (btn) runSkill(btn.dataset.run, [], state.status?.chapter || 1);
@@ -180,22 +365,23 @@ async function runSkill(skill, answers, chapter) {
     toast("Open a book first");
     return;
   }
-  toast(`Running ${skill}…`);
   $("job-card").classList.remove("hidden");
   $("job-title").textContent = skill;
-  $("job-state").textContent = "running";
+  setJobState("running");
+  $("job-preview").classList.remove("hidden");
   $("job-preview").textContent = "";
+  $("job-diff").classList.add("hidden");
   try {
     const job = await invoke("run_skill", {
       args: { project: state.project, skill, answers, chapter, commit: false },
     });
     state.jobId = job.id;
     await openJob(job.id);
-    toast(`${skill} ${job.status}`);
   } catch (err) {
-    $("job-state").textContent = "failed";
-    $("job-preview").textContent = String(err);
-    toast(String(err));
+    // The card is already on screen and carries the failure; a toast on top of
+    // it would just say the same thing twice.
+    setJobState("failed");
+    $("job-preview").textContent = errText(err);
   }
   await renderJobs();
 }
@@ -205,10 +391,24 @@ async function openJob(id) {
   state.jobId = id;
   $("job-card").classList.remove("hidden");
   $("job-title").textContent = detail.job.skill;
-  $("job-state").textContent = detail.job.status;
+  setJobState(detail.job.status);
   $("job-preview").classList.remove("hidden");
   $("job-diff").classList.add("hidden");
   $("job-preview").textContent = detail.preview || detail.job.error || "";
+}
+
+/**
+ * Save / Diff / Reject only mean something for a preview waiting on a decision.
+ * The host rejects them for any other status, so do not offer them.
+ */
+function setJobState(status) {
+  const pill = $("job-state");
+  pill.textContent = status;
+  pill.className = `pill ${status}`;
+  const confirmable = status === "needs_confirm";
+  for (const id of ["btn-save-job", "btn-diff-job", "btn-reject-job"]) {
+    $(id).classList.toggle("hidden", !confirmable);
+  }
 }
 
 async function refreshAuth() {
@@ -227,11 +427,29 @@ async function main() {
   document.querySelectorAll("nav.bottom button").forEach((btn) => {
     btn.addEventListener("click", () => showView(btn.dataset.view));
   });
+  placeBookCard();
   $("btn-open").onclick = async () => {
-    const folder = await invoke("pick_folder");
+    // Hand the chooser the open book (or the last one) so it does not land on
+    // Recents, which is useless for a book kept deep in a home directory.
+    const folder = await invoke("pick_folder", { start: state.project });
     if (folder) await openProject(folder);
   };
+  $("btn-open-path").onclick = () => {
+    const typed = $("open-path").value.trim();
+    if (!typed) {
+      toast("Type a folder path first");
+      return;
+    }
+    openProject(typed);
+  };
+  $("open-path").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") $("btn-open-path").click();
+  });
   $("btn-refresh").onclick = refreshAll;
+  $("btn-bible-import").onclick = () =>
+    runSkill("storybible-import", [], state.status?.chapter || 1);
+  $("btn-bible-write").onclick = () =>
+    runSkill("fiction-storybible", [], state.status?.chapter || 1);
   $("btn-next").onclick = () => {
     if (state.status?.next_skill) runSkill(state.status.next_skill, [], state.status.chapter);
   };
@@ -243,9 +461,22 @@ async function main() {
     runSkill("fiction-story-sparks", [], 1);
   };
   $("btn-save-settings").onclick = saveSettings;
+  $("btn-models").onclick = loadModels;
+  $("set-model-pick").onchange = (ev) => {
+    if (ev.target.value) $("set-model").value = ev.target.value;
+  };
+  $("set-cheap-pick").onchange = (ev) => {
+    if (ev.target.value) $("set-cheap").value = ev.target.value;
+  };
   $("btn-diff-job").onclick = async () => {
     if (!state.jobId) return;
-    const diff = await invoke("job_diff", { project: state.project, id: state.jobId });
+    let diff;
+    try {
+      diff = await invoke("job_diff", { project: state.project, id: state.jobId });
+    } catch (err) {
+      toast(errText(err));
+      return;
+    }
     $("job-preview").classList.add("hidden");
     $("job-diff").classList.remove("hidden");
     $("job-diff").textContent = diff || "no changes";
@@ -280,14 +511,23 @@ async function main() {
   };
   $("btn-save-job").onclick = async () => {
     if (!state.jobId) return;
-    const dest = await invoke("save_job", { project: state.project, id: state.jobId });
-    toast(dest ? `saved ${dest}` : "accepted; no Wiki write");
-    await refreshAll();
-    await openJob(state.jobId);
+    try {
+      const dest = await invoke("save_job", { project: state.project, id: state.jobId });
+      toast(dest ? `saved ${dest}` : "accepted; no Wiki write");
+      await refreshAll();
+      await openJob(state.jobId);
+    } catch (err) {
+      toast(errText(err));
+    }
   };
   $("btn-reject-job").onclick = async () => {
     if (!state.jobId) return;
-    await invoke("reject_job", { project: state.project, id: state.jobId });
+    try {
+      await invoke("reject_job", { project: state.project, id: state.jobId });
+    } catch (err) {
+      toast(errText(err));
+      return;
+    }
     toast("rejected");
     $("job-card").classList.add("hidden");
     await renderJobs();

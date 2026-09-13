@@ -28,6 +28,7 @@ pub(crate) fn next_action(
     mode: Mode,
     chapter: u32,
     slots: &[SlotState; 12],
+    storybible: bool,
 ) -> NextAction {
     match mode {
         Mode::Spark => NextAction {
@@ -56,7 +57,7 @@ pub(crate) fn next_action(
                 .to_owned(),
             missing: missing_if_incomplete(slots, &[Slot::Synopsis, Slot::Characters]),
         },
-        Mode::NewProject | Mode::Resume => resume_spine(project, chapter, slots),
+        Mode::NewProject | Mode::Resume => resume_spine(project, chapter, slots, storybible),
         Mode::Draft => draft_next(chapter, slots),
     }
 }
@@ -77,12 +78,23 @@ fn resume_spine(
     project: Option<&ProjectRoot>,
     chapter: u32,
     slots: &[SlotState; 12],
+    storybible: bool,
 ) -> NextAction {
     if project.is_none() {
-        return NextAction {
-            skill: Some("fiction-genre".to_owned()),
-            why: "no Wiki found; start a new project".to_owned(),
-            missing: vec![Slot::Genre],
+        // A bible on disk is a book waiting to be unpacked; nothing else can
+        // start until its Wiki files exist.
+        return if storybible {
+            NextAction {
+                skill: Some("storybible-import".to_owned()),
+                why: "storybible.md found with no Wiki; import it to build the book".to_owned(),
+                missing: Vec::new(),
+            }
+        } else {
+            NextAction {
+                skill: Some("fiction-genre".to_owned()),
+                why: "no Wiki found; start a new project".to_owned(),
+                missing: vec![Slot::Genre],
+            }
         };
     }
     for (skill, required) in SPINE {

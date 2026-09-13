@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::output::split_character_preview;
+use crate::bible;
+use crate::output::{SkillOutput, skill_output, split_character_preview};
 use crate::{Error, Mode};
 
 /// Lifecycle of one skill execution.
@@ -345,8 +346,10 @@ impl JobStore {
                 expected: JobStatus::NeedsConfirm.to_string(),
             });
         }
-        if job.skill == "fiction-characters" {
-            return self.commit_characters(job);
+        match skill_output(&job.skill) {
+            SkillOutput::Bundle => return self.commit_bundle(job),
+            SkillOutput::CharactersDir => return self.commit_characters(job),
+            _ => {}
         }
         let dest = match self.output_abs(job) {
             Some(path) => path,
@@ -359,15 +362,32 @@ impl JobStore {
             fs::create_dir_all(parent).map_err(|err| Error::io(parent, err))?;
         }
         let preview = self.read_preview(&job.id)?;
-        let tmp = {
-            let mut os = dest.as_os_str().to_owned();
-            os.push(".tmp");
-            PathBuf::from(os)
-        };
-        fs::write(&tmp, preview.as_bytes()).map_err(|err| Error::io(&tmp, err))?;
-        fs::rename(&tmp, &dest).map_err(|err| Error::io(&dest, err))?;
+        write_atomic(&dest, preview.as_bytes())?;
         self.set_status(job, JobStatus::Saved)?;
         Ok(Some(dest))
+    }
+
+    /// Write a bundle preview: one file per document, each naming its own path.
+    ///
+    /// The storybible importer uses this to turn a single bible into a whole
+    /// book folder in one confirmed step.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidStoryBible`] when a document names an unsafe
+    /// destination, or [`Error::Io`] when one cannot be written.
+    fn commit_bundle(&self, job: &mut Job) -> Result<Option<PathBuf>, Error> {
+        let preview = self.read_preview(&job.id)?;
+        let docs = bible::parse_storybible(&preview)?;
+        for doc in &docs {
+            let dest = self.root.join(bible::safe_rel(&doc.path)?);
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).map_err(|err| Error::io(parent, err))?;
+            }
+            write_atomic(&dest, doc.markdown().as_bytes())?;
+        }
+        self.set_status(job, JobStatus::Saved)?;
+        Ok(Some(self.root.clone()))
     }
 
     fn commit_characters(&self, job: &mut Job) -> Result<Option<PathBuf>, Error> {
@@ -378,13 +398,7 @@ impl JobStore {
         let mut last = dir.clone();
         for (name, body) in files {
             let dest = dir.join(name);
-            let tmp = {
-                let mut os = dest.as_os_str().to_owned();
-                os.push(".tmp");
-                PathBuf::from(os)
-            };
-            fs::write(&tmp, body.as_bytes()).map_err(|err| Error::io(&tmp, err))?;
-            fs::rename(&tmp, &dest).map_err(|err| Error::io(&dest, err))?;
+            write_atomic(&dest, body.as_bytes())?;
             last = dest;
         }
         self.set_status(job, JobStatus::Saved)?;
@@ -406,6 +420,17 @@ impl JobStore {
         }
         self.set_status(job, JobStatus::Rejected)
     }
+}
+
+/// Write `bytes` to `dest` through a temporary file beside it.
+fn write_atomic(dest: &Path, bytes: &[u8]) -> Result<(), Error> {
+    let tmp = {
+        let mut os = dest.as_os_str().to_owned();
+        os.push(".tmp");
+        PathBuf::from(os)
+    };
+    fs::write(&tmp, bytes).map_err(|err| Error::io(&tmp, err))?;
+    fs::rename(&tmp, dest).map_err(|err| Error::io(dest, err))
 }
 
 fn new_job_id(skill: &str, dir: &Path) -> String {

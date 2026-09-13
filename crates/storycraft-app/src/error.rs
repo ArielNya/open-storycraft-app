@@ -13,7 +13,7 @@ impl AppError {
         Self::Msg(text.into())
     }
 
-    pub(crate) fn io(path: &std::path::Path, err: std::io::Error) -> Self {
+    pub(crate) fn io(path: &std::path::Path, err: &std::io::Error) -> Self {
         Self::Msg(format!("io error at {}: {err}", path.display()))
     }
 }

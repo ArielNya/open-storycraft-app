@@ -135,3 +135,86 @@ async fn cancel_before_send() {
         .unwrap_err();
     assert!(matches!(err, storycraft_llm::Error::Cancelled));
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn lists_models_from_the_openai_shape() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("authorization", "Bearer sk-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{"object":"list","data":[{"id":"z-model"},{"id":"a-model"},{"id":"a-model"}]}"#,
+        ))
+        .mount(&server)
+        .await;
+
+    let client = OpenAiClient::new(cfg(&server, ApiStyle::ChatCompletions)).unwrap();
+    let models = client.list_models().await.unwrap();
+    assert_eq!(
+        models,
+        vec!["a-model", "z-model"],
+        "sorted and de-duplicated"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn lists_models_from_a_bare_array_or_name_key() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"models":[{"name":"llama3"},{"id":"qwen2"}]}"#),
+        )
+        .mount(&server)
+        .await;
+    let client = OpenAiClient::new(cfg(&server, ApiStyle::ChatCompletions)).unwrap();
+    assert_eq!(client.list_models().await.unwrap(), vec!["llama3", "qwen2"]);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_bare_host_url_falls_back_to_the_versioned_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("not found"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"data":[{"id":"m"}]}"#))
+        .mount(&server)
+        .await;
+
+    let mut config = cfg(&server, ApiStyle::ChatCompletions);
+    config.base_url = server.uri().replace("/v1", "");
+    let client = OpenAiClient::new(config).unwrap();
+    assert_eq!(client.list_models().await.unwrap(), vec!["m"]);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn model_listing_reports_bad_credentials_and_empty_bodies() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(401).set_body_string(r#"{"error":"bad key"}"#))
+        .mount(&server)
+        .await;
+    let client = OpenAiClient::new(cfg(&server, ApiStyle::ChatCompletions)).unwrap();
+    assert!(matches!(
+        client.list_models().await.unwrap_err(),
+        storycraft_llm::Error::Unauthorized
+    ));
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"object":"list"}"#))
+        .mount(&server)
+        .await;
+    let client = OpenAiClient::new(cfg(&server, ApiStyle::ChatCompletions)).unwrap();
+    assert!(matches!(
+        client.list_models().await.unwrap_err(),
+        storycraft_llm::Error::NoModels
+    ));
+}

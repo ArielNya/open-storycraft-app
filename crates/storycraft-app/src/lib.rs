@@ -9,6 +9,7 @@ mod error;
 mod host;
 mod paths;
 mod settings;
+mod window;
 
 use storycraft_auth::DeviceCode;
 
@@ -35,9 +36,14 @@ pub fn run() {
         .manage(AppState {
             pending_device: std::sync::Mutex::new(None),
         })
+        .setup(|app| {
+            window::fit_to_work_area(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::save_settings,
+            commands::list_models,
             commands::discover_projects,
             commands::get_status,
             commands::list_files,

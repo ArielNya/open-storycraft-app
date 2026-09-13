@@ -125,6 +125,69 @@ impl OpenAiClient {
         &self.config.model
     }
 
+    /// Model ids the provider advertises.
+    ///
+    /// Calls `GET {base_url}/models` — the OpenAI-compatible listing endpoint.
+    /// A server that only answers under `/v1/models` is retried once, so a bare
+    /// host URL still works.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Transport`] on network failure, HTTP errors mapped by
+    /// status (401 rejected credentials, 403 tier denied), and
+    /// [`Error::NoModels`] when the body carries no recognizable model list.
+    pub async fn list_models(&self) -> Result<Vec<String>, Error> {
+        let base = self.config.base_url.trim_end_matches('/');
+        let url = format!("{base}/models");
+        match self.fetch_models(&url).await {
+            Err(Error::Http { status, .. }) if status == 404 || status == 405 => {
+                // Some servers keep the list under the versioned prefix only.
+                let versioned = format!("{base}/v1/models");
+                self.fetch_models(&versioned).await
+            }
+            other => other,
+        }
+    }
+
+    async fn fetch_models(&self, url: &str) -> Result<Vec<String>, Error> {
+        let headers = self.auth_headers()?;
+        info!(url = %url, "provider model list request");
+        let response = self
+            .http
+            .get(url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(Error::Transport)?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::from_status(status, &body));
+        }
+        let text = response.text().await.map_err(Error::Transport)?;
+        let value: Value =
+            serde_json::from_str(&text).map_err(|err| Error::InvalidPayload(err.to_string()))?;
+        let models = model_ids(&value);
+        if models.is_empty() {
+            return Err(Error::NoModels);
+        }
+        Ok(models)
+    }
+
+    /// Bearer header for the configured key, marked sensitive so it never
+    /// reaches a log.
+    fn auth_headers(&self) -> Result<HeaderMap, Error> {
+        let mut headers = HeaderMap::new();
+        if let Some(key) = &self.config.api_key {
+            let value = format!("Bearer {}", key.expose());
+            let mut header = HeaderValue::from_str(&value)
+                .map_err(|err| Error::InvalidPayload(err.to_string()))?;
+            header.set_sensitive(true);
+            headers.insert(AUTHORIZATION, header);
+        }
+        Ok(headers)
+    }
+
     /// Run one completion. `on_delta` is called with each text chunk so the
     /// host can append the preview file while the request is in flight.
     ///
@@ -178,14 +241,7 @@ impl OpenAiClient {
             user,
             self.config.stream,
         );
-        let mut headers = HeaderMap::new();
-        if let Some(key) = &self.config.api_key {
-            let value = format!("Bearer {}", key.expose());
-            let mut header = HeaderValue::from_str(&value)
-                .map_err(|err| Error::InvalidPayload(err.to_string()))?;
-            header.set_sensitive(true);
-            headers.insert(AUTHORIZATION, header);
-        }
+        let headers = self.auth_headers()?;
 
         info!(
             url = %url,
@@ -314,4 +370,45 @@ fn request_body(style: ApiStyle, model: &str, system: &str, user: &str, stream: 
 fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     let value = headers.get(RETRY_AFTER)?.to_str().ok()?;
     value.parse::<u64>().ok().map(Duration::from_secs)
+}
+
+/// Model ids out of an OpenAI-shaped listing.
+///
+/// Accepts `{"data": [{"id": …}]}`, `{"models": […]}` (and the same with a
+/// `name` key), or a bare array. Sorted and de-duplicated so the picker in the
+/// settings view is stable between calls.
+fn model_ids(value: &Value) -> Vec<String> {
+    let mut ids = Vec::new();
+    for key in ["data", "models"] {
+        if let Some(list) = value.get(key).and_then(Value::as_array) {
+            collect_ids(list, &mut ids);
+        }
+    }
+    if ids.is_empty()
+        && let Some(list) = value.as_array()
+    {
+        collect_ids(list, &mut ids);
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn collect_ids(list: &[Value], ids: &mut Vec<String>) {
+    for item in list {
+        let id = match item {
+            Value::String(text) => Some(text.clone()),
+            Value::Object(map) => map
+                .get("id")
+                .or_else(|| map.get("name"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            _ => None,
+        };
+        if let Some(id) = id.map(|id| id.trim().to_owned())
+            && !id.is_empty()
+        {
+            ids.push(id);
+        }
+    }
 }

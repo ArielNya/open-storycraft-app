@@ -33,6 +33,9 @@ pub enum Error {
     /// Empty completion after the stream ended.
     #[error("provider returned no text")]
     EmptyCompletion,
+    /// The provider answered, but with no model list this client understands.
+    #[error("provider returned no model list; type the model id instead")]
+    NoModels,
 }
 
 impl Error {

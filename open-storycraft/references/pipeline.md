@@ -22,11 +22,24 @@ Read this when choosing a child skill. Paths are under `/home/workdir/.grok/skil
 
 fiction-story-sparks sits before the spine. It writes nothing into Wiki/.
 
+## Storybible (portable single file)
+
+A storybible is one markdown file that carries a whole book. Two skills cover it, and they are a pair — one writes the file, the other unpacks it.
+
+| Skill | Does | Runs |
+|---|---|---|
+| fiction-storybible | Writes `storybible.md` beside `Wiki/`, either assembling existing canon or authoring a new book | model |
+| storybible-import | Splits that file into `Wiki/…` and `Chapters/…` files | local, no model, no key |
+
+Use them to move a book between machines, to hand a whole plan to someone in one file, or to start a project from a bible someone else wrote. Format reference: `fiction-storybible/references/storybible-format.md`.
+
 ## Phrase → skill
 
 | User says | Skill |
 |---|---|
 | spark, random prompt, fortune room, writing exercise | fiction-story-sparks |
+| story bible, storybible, whole book in one file, export the book as one file | fiction-storybible |
+| import my bible, turn this bible into a book, set up the project from storybible.md | storybible-import |
 | pick a genre, tropes, subgenre | fiction-genre |
 | who is this for, age group, heat, rating | fiction-audience |
 | what is it about, theme, motifs | fiction-theme |

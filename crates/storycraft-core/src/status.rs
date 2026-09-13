@@ -135,6 +135,7 @@ pub struct NextAction {
 #[must_use]
 pub struct StatusBoard {
     project: Option<ProjectRoot>,
+    storybible: Option<std::path::PathBuf>,
     mode: Mode,
     chapter: u32,
     slots: [SlotState; 12],
@@ -148,6 +149,35 @@ impl StatusBoard {
     ///
     /// Returns [`Error::InvalidChapter`] when `chapter` is 0.
     pub fn inspect(project: Option<&ProjectRoot>, mode: Mode, chapter: u32) -> Result<Self, Error> {
+        let storybible = project.and_then(|project| crate::bible::find_storybible(project.path()));
+        Self::build(project, storybible, mode, chapter)
+    }
+
+    /// Inspect the folder the user opened, Wiki or not.
+    ///
+    /// A folder holding a `storybible.md` and no `Wiki/` is a book that has not
+    /// been unpacked yet, and the board says so.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidChapter`] when `chapter` is 0, and propagates
+    /// [`Error::MultipleProjects`] when the folder holds more than one book.
+    pub fn inspect_folder(start: &Path, mode: Mode, chapter: u32) -> Result<Self, Error> {
+        let project = match crate::project::discover_one(start) {
+            Ok(project) => Some(project),
+            Err(Error::NoProject(_)) => None,
+            Err(other) => return Err(other),
+        };
+        let storybible = crate::bible::find_storybible(start);
+        Self::build(project.as_ref(), storybible, mode, chapter)
+    }
+
+    fn build(
+        project: Option<&ProjectRoot>,
+        storybible: Option<std::path::PathBuf>,
+        mode: Mode,
+        chapter: u32,
+    ) -> Result<Self, Error> {
         if chapter == 0 {
             return Err(Error::InvalidChapter);
         }
@@ -157,9 +187,10 @@ impl StatusBoard {
                 slots[slot.index()] = inspect_slot(project, slot, chapter);
             }
         }
-        let next = next_action(project, mode, chapter, &slots);
+        let next = next_action(project, mode, chapter, &slots, storybible.is_some());
         Ok(Self {
             project: project.cloned(),
+            storybible,
             mode,
             chapter,
             slots,
@@ -171,6 +202,12 @@ impl StatusBoard {
     #[must_use]
     pub fn project(&self) -> Option<&ProjectRoot> {
         self.project.as_ref()
+    }
+
+    /// Storybible found beside the project, if any.
+    #[must_use]
+    pub fn storybible(&self) -> Option<&Path> {
+        self.storybible.as_deref()
     }
 
     /// Mode this board was built for.
@@ -206,6 +243,10 @@ impl StatusBoard {
                 .as_ref()
                 .map(|project| project.path().display().to_string()),
             title: self.project.as_ref().and_then(ProjectRoot::title),
+            storybible: self
+                .storybible
+                .as_ref()
+                .map(|path| path.display().to_string()),
             mode: self.mode.as_str().to_owned(),
             chapter: self.chapter,
             slots: Slot::ALL
@@ -243,6 +284,8 @@ pub struct StatusSnapshot {
     pub project: Option<String>,
     /// Working title from genre/synopsis, if any.
     pub title: Option<String>,
+    /// A portable `storybible.md` in the folder, if one is there.
+    pub storybible: Option<String>,
     /// Orchestrator mode.
     pub mode: String,
     /// Chapter used for scenes / psych / chapters.
@@ -262,6 +305,9 @@ impl fmt::Display for StatusBoard {
         match &self.project {
             Some(project) => writeln!(f, "Project: {}", project.path().display())?,
             None => writeln!(f, "Project: (none)")?,
+        }
+        if let Some(bible) = &self.storybible {
+            writeln!(f, "Storybible: {}", bible.display())?;
         }
         writeln!(f, "Mode: {}", self.mode)?;
         writeln!(f, "Chapter: {}", self.chapter)?;

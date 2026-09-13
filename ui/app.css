@@ -8,29 +8,53 @@
   --yes: #7fb069;
   --partial: #d4a017;
   --no: #c45c4a;
+  --field: #14110e;
   --tap: 44px;
+  --nav: 56px;
+
+  /* Native widgets (select popups, scrollbars, carets) follow this. Without it
+     WebKitGTK draws a light popup over the dark chrome. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
+html, body { height: 100%; margin: 0; }
+
+/* App shell: the header and the nav are fixed rows; the open view scrolls
+   between them, so no card can end up underneath the nav. */
 body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   font: 16px/1.45 system-ui, sans-serif;
   background: var(--bg);
   color: var(--ink);
-  padding: 12px 12px calc(72px + env(safe-area-inset-bottom));
 }
 
-.top { margin-bottom: 12px; }
+.top { flex: none; padding: 12px 12px 4px; }
 .eyebrow { margin: 0; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }
 h1 { margin: 4px 0 0; font-size: 22px; }
 h2 { margin: 0 0 8px; font-size: 15px; }
+p { margin: 0 0 8px; }
+#subtitle { margin: 4px 0 0; }
 .muted { color: var(--muted); }
-.path { font-size: 12px; word-break: break-all; }
+.path { font-size: 12px; word-break: break-all; margin: 8px 0 0; }
 
-.view { display: flex; flex-direction: column; gap: 12px; }
+.view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
 .hidden { display: none !important; }
 
 .card {
+  flex: none;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -51,11 +75,18 @@ button:disabled { opacity: 0.45; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .row button { flex: 1; }
 
-.slots { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* Card title with its actions on one line: a full-width button row costs 52px
+   of a 620px window, and the jobs list below it needs that space. */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.card-head h2 { margin: 0; }
+.row.actions { margin: 0; flex-wrap: nowrap; }
+.row.actions button { flex: none; padding: 0 10px; }
+
+.slots { list-style: none; margin: 0 0 10px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .slots li {
   display: flex; justify-content: space-between; gap: 8px;
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
-  font-size: 13px;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 12px;
 }
 .slots .yes { color: var(--yes); }
 .slots .partial { color: var(--partial); }
@@ -69,12 +100,15 @@ button:disabled { opacity: 0.45; }
   cursor: pointer;
 }
 .list li:last-child { border-bottom: 0; }
+.list li.selected { color: var(--accent); }
+/* Long file trees must not push the preview off screen. */
+.list.scroll { max-height: 28vh; overflow-y: auto; }
 
 .md {
   white-space: pre-wrap;
   word-break: break-word;
   font: 13px/1.5 ui-monospace, monospace;
-  max-height: 50vh;
+  max-height: 45vh;
   overflow: auto;
   margin: 0;
   color: #efe6d6;
@@ -82,19 +116,36 @@ button:disabled { opacity: 0.45; }
 .md.diff { color: #d8cbb8; }
 
 label { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 13px; color: var(--muted); }
+label.check { flex-direction: row; align-items: center; gap: 8px; }
+label.check input { min-height: auto; width: 18px; }
+
+textarea,
 input, select {
   min-height: var(--tap);
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: #14110e;
+  background: var(--field);
   color: var(--ink);
   padding: 0 10px;
   font: inherit;
 }
+textarea { min-height: 72px; padding: 8px 10px; }
+
+/* Draw the select ourselves: the GTK arrow is drawn for a light theme. */
+select {
+  appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23b7a894'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 6px;
+}
+select option { background: var(--field); color: var(--ink); }
 
 .bottom {
-  position: fixed; left: 0; right: 0; bottom: 0;
+  flex: none;
   display: grid; grid-template-columns: repeat(5, 1fr);
+  min-height: var(--nav);
   background: #120f0c;
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -104,17 +155,25 @@ input, select {
 }
 .bottom button.active { color: var(--accent); }
 
+/* Overlay above the nav row, never under it. */
 .job-card {
-  position: fixed; left: 8px; right: 8px; bottom: calc(64px + env(safe-area-inset-bottom));
+  position: fixed; left: 8px; right: 8px;
+  bottom: calc(var(--nav) + 8px + env(safe-area-inset-bottom));
   background: var(--paper);
   border: 1px solid var(--accent);
   border-radius: 12px;
   padding: 12px;
-  max-height: 55vh;
+  max-height: 60vh;
   overflow: auto;
   z-index: 5;
 }
+.job-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .pill { font-size: 12px; color: var(--accent); }
+/* Which chapter the board's chapter-scoped slots and passes refer to. */
+.chip { font-size: 11px; font-weight: 400; color: var(--muted); letter-spacing: 0.04em; }
+.pill.saved { color: var(--yes); }
+.pill.failed { color: var(--no); }
+.pill.rejected { color: var(--muted); }
 .code { font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 0.12em; }
 
 .toast {

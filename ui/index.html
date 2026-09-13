@@ -14,29 +14,46 @@
     </header>
 
     <main id="view-home" class="view">
-      <section class="card">
-        <button id="btn-open" class="primary" type="button">Open book folder</button>
-        <p id="project-path" class="muted path"></p>
-      </section>
-      <section class="card">
-        <h2>Status</h2>
+      <section class="card" id="card-status">
+        <div class="card-head">
+          <h2>Status <span id="status-chapter" class="chip"></span></h2>
+          <div class="row actions">
+            <button id="btn-spark" type="button">Spark</button>
+            <button id="btn-refresh" type="button">Refresh</button>
+          </div>
+        </div>
         <ul id="slots" class="slots"></ul>
         <button id="btn-next" class="primary" type="button" disabled>Next</button>
-        <div class="row">
-          <button id="btn-spark" type="button">Spark</button>
-          <button id="btn-refresh" type="button">Refresh</button>
-        </div>
       </section>
       <section class="card">
         <h2>Jobs</h2>
-        <ul id="jobs" class="list"></ul>
+        <ul id="jobs" class="list scroll"></ul>
+      </section>
+      <section class="card" id="card-book">
+        <h2>Book</h2>
+        <button id="btn-open" class="primary" type="button">Open book folder</button>
+        <label>Or type a path
+          <input id="open-path" type="text" spellcheck="false" placeholder="/home/you/Books/salt-ledger" />
+        </label>
+        <button id="btn-open-path" type="button">Open path</button>
+        <p id="project-path" class="muted path"></p>
       </section>
     </main>
 
     <main id="view-book" class="view hidden">
+      <section class="card" id="card-bible">
+        <div class="card-head">
+          <h2>Storybible</h2>
+          <div class="row actions">
+            <button id="btn-bible-write" type="button">Write</button>
+            <button id="btn-bible-import" class="primary" type="button">Import</button>
+          </div>
+        </div>
+        <p id="bible-state" class="muted path"></p>
+      </section>
       <section class="card">
         <h2>Files</h2>
-        <ul id="files" class="list"></ul>
+        <ul id="files" class="list scroll"></ul>
       </section>
       <section class="card">
         <h2>Preview</h2>
@@ -54,7 +71,7 @@
 
     <main id="view-edit" class="view hidden">
       <section class="card">
-        <h2>Editorial ladder</h2>
+        <h2>Editorial ladder <span id="edit-chapter" class="chip"></span></h2>
         <p class="muted">One pass at a time. Kill/line-edit/fragment runs are 40-line chunks, one confirm at the end.</p>
         <ul id="ladder" class="list"></ul>
       </section>
@@ -91,11 +108,50 @@
         <label>Model
           <input id="set-model" type="text" spellcheck="false" />
         </label>
+        <div class="row">
+          <button id="btn-models" type="button">Load models from the API</button>
+        </div>
+        <p id="models-state" class="muted path">Paste a URL and key above, then load what the provider offers.</p>
+        <label>Pick a model
+          <select id="set-model-pick">
+            <option value="">Not loaded yet</option>
+          </select>
+        </label>
+        <label>Cheap model (editorial)
+          <input id="set-cheap" type="text" spellcheck="false" placeholder="optional" />
+        </label>
+        <label>Pick the cheap model
+          <select id="set-cheap-pick">
+            <option value="">Not loaded yet</option>
+          </select>
+        </label>
+        <label>Token budget
+          <input id="set-budget" type="number" min="1000" step="1000" />
+        </label>
+        <label>Per-skill models
+          <textarea id="set-routes" rows="3" spellcheck="false" placeholder="kill-flat=mini"></textarea>
+        </label>
         <label>Skills dir
           <input id="set-skills" type="text" spellcheck="false" placeholder="optional" />
         </label>
         <button id="btn-save-settings" class="primary" type="button">Save settings</button>
         <button id="btn-export" type="button">Export zip</button>
+      </section>
+      <section class="card">
+        <h2>Overlays</h2>
+        <p class="muted">Off by default. These are user skills, not in the vendored pack unless you add the folders.</p>
+        <label class="check"><input type="checkbox" data-overlay="ao3-writer" /> ao3-writer</label>
+        <label class="check"><input type="checkbox" data-overlay="ao3-narrative-voice" /> ao3-narrative-voice</label>
+        <label class="check"><input type="checkbox" data-overlay="ao3-dialogue-engine" /> ao3-dialogue-engine</label>
+        <label class="check"><input type="checkbox" data-overlay="ao3-scene-review" /> ao3-scene-review</label>
+        <label class="check"><input type="checkbox" data-overlay="anti-slop-editor" /> anti-slop-editor</label>
+      </section>
+      <section class="card">
+        <h2>About</h2>
+        <p class="muted">
+          Open Storycraft 0.1.0. Sideload APK and desktop. Not listed on Play.
+          iOS is not this build. SuperGrok is not console API billing.
+        </p>
       </section>
       <section class="card">
         <h2>Sign in with xAI (community OAuth)</h2>

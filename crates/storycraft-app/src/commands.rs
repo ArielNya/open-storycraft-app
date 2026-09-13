@@ -45,6 +45,7 @@ pub struct JobDetail {
 pub struct SkillInfo {
     pub name: String,
     pub description: String,
+    pub overlay: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +91,24 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), AppErr
     settings::save(&app, &settings)
 }
 
+/// Model ids the provider advertises at `GET {base_url}/models`.
+///
+/// Takes the settings the user is looking at, not the saved file, so a freshly
+/// typed URL and key can be tested before anything is stored. The key is used
+/// for the request only; it is never logged and never written here.
+#[tauri::command]
+pub async fn list_models(app: AppHandle, settings: AppSettings) -> Result<Vec<String>, AppError> {
+    let client = host::build_client(&app, &settings, &settings.model).await?;
+    let models = client.list_models().await?;
+    tracing::info!(
+        count = models.len(),
+        base_url = %settings.base_url,
+        provider = %settings.provider,
+        "listed provider models"
+    );
+    Ok(models)
+}
+
 #[tauri::command]
 pub fn discover_projects(start: String) -> Result<Vec<ProjectInfo>, AppError> {
     let path = PathBuf::from(&start);
@@ -100,13 +119,30 @@ pub fn discover_projects(start: String) -> Result<Vec<ProjectInfo>, AppError> {
         }]);
     }
     let found = storycraft_core::discover(&path)?;
-    Ok(found
-        .into_iter()
-        .map(|project| ProjectInfo {
-            path: project.path().display().to_string(),
-            title: project.title(),
-        })
-        .collect())
+    if !found.is_empty() {
+        return Ok(found
+            .into_iter()
+            .map(|project| ProjectInfo {
+                path: project.path().display().to_string(),
+                title: project.title(),
+            })
+            .collect());
+    }
+    // No Wiki anywhere, but a storybible is a book waiting to be unpacked.
+    Ok(storybible_project(&path).into_iter().collect())
+}
+
+/// The folder a `storybible.md` describes, when no `Wiki/` exists yet.
+fn storybible_project(path: &Path) -> Option<ProjectInfo> {
+    let bible = storycraft_core::find_storybible(path)?;
+    let book = bible.parent()?;
+    let title = std::fs::read_to_string(&bible)
+        .ok()
+        .and_then(|text| storycraft_core::storybible_title(&text));
+    Some(ProjectInfo {
+        path: book.display().to_string(),
+        title,
+    })
 }
 
 #[tauri::command]
@@ -122,15 +158,17 @@ pub fn get_status(
         (None, Some(project)) => infer_chapter(project),
         (None, None) => 1,
     };
-    let board = storycraft_core::StatusBoard::inspect(root.as_ref(), mode_from(mode)?, chapter)?;
+    let board = storycraft_core::StatusBoard::inspect_folder(&path, mode_from(mode)?, chapter)?;
     Ok(board.snapshot())
 }
 
 #[tauri::command]
 pub fn list_files(project: String) -> Result<Vec<FileEntry>, AppError> {
     let path = PathBuf::from(&project);
-    let root =
-        resolve_project(&path)?.ok_or_else(|| AppError::msg("no Wiki folder in that path"))?;
+    let Some(root) = resolve_project(&path)? else {
+        // No Wiki yet: a storybible is the only thing there is to show.
+        return Ok(bible_files(&path));
+    };
     let mut out = Vec::new();
     for folder in ["Wiki", "Chapters"] {
         let base = root.path().join(folder);
@@ -167,13 +205,15 @@ pub fn list_files(project: String) -> Result<Vec<FileEntry>, AppError> {
 pub fn read_project_file(project: String, rel: String) -> Result<String, AppError> {
     reject_escape(&rel)?;
     let path = PathBuf::from(&project);
-    let root =
-        resolve_project(&path)?.ok_or_else(|| AppError::msg("no Wiki folder in that path"))?;
-    let file = root.path().join(&rel);
+    let base = match resolve_project(&path)? {
+        Some(root) => root.path().to_path_buf(),
+        None => path,
+    };
+    let file = base.join(&rel);
     if !file.is_file() {
         return Err(AppError::msg(format!("not a file: {rel}")));
     }
-    std::fs::read_to_string(&file).map_err(|err| AppError::io(&file, err))
+    std::fs::read_to_string(&file).map_err(|err| AppError::io(&file, &err))
 }
 
 #[tauri::command]
@@ -237,7 +277,7 @@ pub fn burstiness_report(
     let n = chapter.unwrap_or_else(|| infer_chapter(&root));
     let file = find_chapter_prose(&root, n)
         .ok_or_else(|| AppError::msg(format!("no chapter prose for chapter {n}")))?;
-    let text = std::fs::read_to_string(&file).map_err(|err| AppError::io(&file, err))?;
+    let text = std::fs::read_to_string(&file).map_err(|err| AppError::io(&file, &err))?;
     Ok(storycraft_tools::measure(&text))
 }
 
@@ -282,6 +322,7 @@ pub fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, AppError> {
     Ok(catalog
         .iter()
         .map(|skill| SkillInfo {
+            overlay: storycraft_core::is_overlay(&skill.name),
             name: skill.name.clone(),
             description: skill.description.clone(),
         })
@@ -303,15 +344,29 @@ pub async fn run_skill(app: AppHandle, args: RunArgs) -> Result<Job, AppError> {
     .await
 }
 
+/// Open the platform folder picker, starting at `start` when it exists.
+///
+/// Without a directory the GTK chooser opens on Recents, which is useless for a
+/// book kept deep in a home directory. The Android SAF picker takes no starting
+/// directory, so `start` is desktop-only.
 #[tauri::command]
-pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, AppError> {
+pub async fn pick_folder(
+    app: AppHandle,
+    #[cfg_attr(target_os = "android", allow(unused_variables))] start: Option<String>,
+) -> Result<Option<String>, AppError> {
     let (tx, rx) = tokio::sync::oneshot::channel();
+    let dialog = app.dialog().file();
+    #[cfg(not(target_os = "android"))]
+    let dialog = match start.filter(|dir| Path::new(dir).is_dir()) {
+        Some(dir) => dialog.set_directory(dir),
+        None => dialog,
+    };
     #[cfg(target_os = "android")]
-    app.dialog().file().pick_file(move |picked| {
+    dialog.pick_file(move |picked| {
         let _ = tx.send(picked);
     });
     #[cfg(not(target_os = "android"))]
-    app.dialog().file().pick_folder(move |picked| {
+    dialog.pick_folder(move |picked| {
         let _ = tx.send(picked);
     });
     let picked = rx
@@ -320,6 +375,41 @@ pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, AppError> {
     Ok(picked
         .and_then(|path| path.into_path().ok())
         .map(book_root_from))
+}
+
+/// Markdown files in a folder that has no `Wiki/` yet, storybible first.
+fn bible_files(path: &Path) -> Vec<FileEntry> {
+    let mut out = Vec::new();
+    for entry in WalkDir::new(path)
+        .follow_links(false)
+        .max_depth(2)
+        .into_iter()
+        .filter_entry(|entry| entry.file_name() != ".storycraft")
+    {
+        let Ok(entry) = entry else { continue };
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if !name.ends_with(".md") {
+            continue;
+        }
+        let rel = entry
+            .path()
+            .strip_prefix(path)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        out.push(FileEntry {
+            rel,
+            kind: "file".to_owned(),
+        });
+    }
+    out.sort_by(|a, b| {
+        let key = |rel: &str| (!rel.ends_with("storybible.md"), rel.to_owned());
+        key(&a.rel).cmp(&key(&b.rel))
+    });
+    out
 }
 
 fn book_root_from(path: PathBuf) -> String {

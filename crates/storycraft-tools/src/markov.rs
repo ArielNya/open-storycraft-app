@@ -11,7 +11,7 @@ use crate::Error;
 const START: char = '\u{0000}';
 const END: char = '\u{0001}';
 
-/// Parameters for [`generate_from_list`].
+/// Parameters for [`generate_from_path`] and [`generate`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerateOpts {
     /// How many unique names to try for.

@@ -3,6 +3,7 @@
 #![allow(missing_docs)]
 #![allow(clippy::print_stdout)]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -13,10 +14,11 @@ use storycraft_auth::{
     default_token_path,
 };
 use storycraft_core::{
-    CHUNK_LINES, Catalog, Error, Job, JobStatus, JobStore, Mode, NewJob, PackKind, ProjectRoot,
-    StatusBoard, apply_chunk_edit, discover, ensure_requires, export_zip, find_chapter_prose,
-    find_skills_dir, format_project_list, infer_chapter, is_chunked_skill, merge_chunks,
-    pack_skill, prepare_skill, resolve_output_path, split_lines, unified_diff, validate_preview,
+    CHUNK_LINES, Catalog, DEFAULT_TOTAL_CHARS, Error, Job, JobStatus, JobStore, Mode, ModelRouter,
+    NewJob, PackKind, ProjectRoot, StatusBoard, apply_chunk_edit, discover, ensure_requires,
+    export_zip, find_chapter_prose, find_skills_dir, format_project_list, infer_chapter,
+    is_chunked_skill, is_overlay, merge_chunks, pack_skill, prepare_skill, resolve_output_path,
+    split_lines, unified_diff, validate_preview,
 };
 use storycraft_llm::{ApiStyle, CancellationToken, OpenAiClient, ProviderConfig, Secret};
 use storycraft_tools::{GenerateOpts, is_local_tool};
@@ -29,7 +31,7 @@ use storycraft_tools::{GenerateOpts, is_local_tool};
     about = "Open Storycraft local writing studio"
 )]
 pub struct Cli {
-    /// Skill library directory (42 craft skills + orchestrator).
+    /// Skill library directory (the `open-storycraft` pack).
     #[arg(long, global = true, env = "STORYCRAFT_SKILLS")]
     pub skills_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -80,7 +82,11 @@ pub enum Command {
         mode: Mode,
     },
     /// List vendored skills (frontmatter index only)
-    Skills,
+    Skills {
+        /// Include optional overlays (`ao3-*`, `anti-slop-editor`)
+        #[arg(long)]
+        overlays: bool,
+    },
     /// List files a skill pack would include (linked refs, not the whole folder)
     Pack {
         /// Skill folder name, e.g. fiction-genre
@@ -109,6 +115,15 @@ pub enum Command {
         api_style: ApiStyle,
         #[arg(long, default_value = "grok-4.6")]
         model: String,
+        /// Cheaper model for editorial / kill-pass skills
+        #[arg(long)]
+        cheap_model: Option<String>,
+        /// Per-skill override, repeatable (`kill-crutch=grok-3-mini`)
+        #[arg(long = "route", value_name = "SKILL=MODEL", value_parser = parse_route)]
+        routes: Vec<(String, String)>,
+        /// Packer char budget (0 = default)
+        #[arg(long, default_value_t = DEFAULT_TOTAL_CHARS)]
+        budget: usize,
         /// Copy the preview to the Wiki path after validation
         #[arg(long)]
         commit: bool,
@@ -221,6 +236,18 @@ fn parse_api_style(s: &str) -> Result<ApiStyle, String> {
     s.parse::<ApiStyle>().map_err(|err| err.to_string())
 }
 
+fn parse_route(s: &str) -> Result<(String, String), String> {
+    let (skill, model) = s
+        .split_once('=')
+        .ok_or_else(|| "expected SKILL=MODEL".to_owned())?;
+    let skill = skill.trim();
+    let model = model.trim();
+    if skill.is_empty() || model.is_empty() {
+        return Err("expected SKILL=MODEL".into());
+    }
+    Ok((skill.to_owned(), model.to_owned()))
+}
+
 /// Parse argv and execute.
 ///
 /// # Errors
@@ -248,12 +275,23 @@ pub async fn run() -> anyhow::Result<()> {
                 None => println!("— — {}", board.next().why),
             }
         }
-        Command::Skills => {
+        Command::Skills { overlays } => {
             let catalog = load_catalog(cli.skills_dir.as_deref())?;
-            for skill in catalog.iter() {
-                println!("{} — {}", skill.name, skill.description);
+            let enabled = if overlays {
+                vec!["*".to_owned()]
+            } else {
+                Vec::new()
+            };
+            let mut n = 0usize;
+            for skill in catalog.iter_visible(&enabled) {
+                if is_overlay(&skill.name) {
+                    println!("{} [overlay] — {}", skill.name, skill.description);
+                } else {
+                    println!("{} — {}", skill.name, skill.description);
+                }
+                n = n.saturating_add(1);
             }
-            eprintln!("{} skills", catalog.len());
+            eprintln!("{n} skills");
         }
         Command::Pack { ref skill } => {
             let catalog = load_catalog(cli.skills_dir.as_deref())?;
@@ -286,6 +324,9 @@ pub async fn run() -> anyhow::Result<()> {
             api_key,
             api_style,
             model,
+            cheap_model,
+            routes,
+            budget,
             commit,
             auth_file,
         } => {
@@ -301,6 +342,9 @@ pub async fn run() -> anyhow::Result<()> {
                 api_key,
                 api_style,
                 model,
+                cheap_model,
+                routes: routes.into_iter().collect(),
+                budget,
                 commit,
                 auth_file,
             })
@@ -501,6 +545,9 @@ pub struct RunRequest {
     pub api_key: Option<String>,
     pub api_style: ApiStyle,
     pub model: String,
+    pub cheap_model: Option<String>,
+    pub routes: BTreeMap<String, String>,
+    pub budget: usize,
     pub commit: bool,
     pub auth_file: Option<PathBuf>,
 }
@@ -531,12 +578,19 @@ pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
         return run_local(&req, &store, project.as_ref(), chapter, output_path, mode).await;
     }
 
+    let router = ModelRouter::new(
+        req.model.clone(),
+        req.cheap_model.clone(),
+        req.routes.clone(),
+    );
+    let model = router.model_for(&req.skill).to_owned();
     let (packed, prompt) = prepare_skill(
         manifest,
         &req.answers,
         project.as_ref(),
         chapter,
         output_path.as_deref(),
+        req.budget,
     )?;
     let mut job = store.create(NewJob {
         skill: req.skill.clone(),
@@ -545,13 +599,13 @@ pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
         answers: req.answers.clone(),
         packed_context_hash: packed.hash.clone(),
         provider: req.provider.clone(),
-        model: req.model.clone(),
+        model,
         output_path,
     })?;
     snapshot_original(&store, &job)?;
     store.set_status(&mut job, JobStatus::Running)?;
 
-    let client = build_client(&req).await?;
+    let client = build_client(&req, &job.model).await?;
     let cancel = CancellationToken::new();
     let text = if is_chunked_skill(&req.skill) {
         run_chunked(&store, &job, &client, &prompt, &cancel).await
@@ -696,6 +750,7 @@ async fn run_local(
             }
             out
         }
+        "storybible-import" => storycraft_core::storybible_import_preview(store.root())?,
         other => return Err(anyhow!("not a local tool: {other}")),
     };
     let mut job = store.create(NewJob {
@@ -716,8 +771,8 @@ async fn run_local(
     Ok(job)
 }
 
-async fn build_client(req: &RunRequest) -> anyhow::Result<OpenAiClient> {
-    let mut config = ProviderConfig::openai_compat(&req.base_url, &req.model);
+async fn build_client(req: &RunRequest, model: &str) -> anyhow::Result<OpenAiClient> {
+    let mut config = ProviderConfig::openai_compat(&req.base_url, model);
     config.name = req.provider.clone();
     config.api_style = req.api_style;
     config.api_key = match req.provider.as_str() {
@@ -780,7 +835,8 @@ fn build_board(path: &Path, chapter: Option<u32>, mode: Mode) -> anyhow::Result<
         (None, Some(project)) => infer_chapter(project),
         (None, None) => 1,
     };
-    StatusBoard::inspect(project.as_ref(), mode, chapter).map_err(anyhow::Error::from)
+    // Folder-aware: a storybible with no Wiki routes to the importer.
+    StatusBoard::inspect_folder(path, mode, chapter).map_err(anyhow::Error::from)
 }
 
 fn resolve_project(path: &Path) -> anyhow::Result<Option<ProjectRoot>> {
@@ -877,6 +933,46 @@ mod tests {
                 assert_eq!(project.resolve(), PathBuf::from("/tmp/book"));
             }
             _ => panic!("expected status"),
+        }
+    }
+
+    #[test]
+    fn run_parses_cheap_model_and_routes() {
+        let cli = Cli::try_parse_from([
+            "storycraft",
+            "run",
+            "kill-crutch",
+            "--cheap-model",
+            "mini",
+            "--route",
+            "kill-flat=other",
+            "--budget",
+            "12000",
+        ])
+        .expect("parse");
+        match cli.command {
+            Command::Run {
+                cheap_model,
+                routes,
+                budget,
+                model,
+                ..
+            } => {
+                assert_eq!(cheap_model.as_deref(), Some("mini"));
+                assert_eq!(routes, vec![("kill-flat".into(), "other".into())]);
+                assert_eq!(budget, 12_000);
+                assert_eq!(model, "grok-4.6");
+            }
+            _ => panic!("expected run"),
+        }
+    }
+
+    #[test]
+    fn skills_overlays_flag_parses() {
+        let cli = Cli::try_parse_from(["storycraft", "skills", "--overlays"]).expect("parse");
+        match cli.command {
+            Command::Skills { overlays } => assert!(overlays),
+            _ => panic!("expected skills"),
         }
     }
 }

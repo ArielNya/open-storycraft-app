@@ -65,6 +65,9 @@ pub enum Error {
     /// Preview failed the skill's basic shape check.
     #[error("preview failed validation: {0}")]
     InvalidPreview(String),
+    /// A storybible document could not be read as a book.
+    #[error("invalid storybible: {0}")]
+    InvalidStoryBible(String),
     /// Job JSON could not be parsed.
     #[error("invalid job file {path}")]
     InvalidJob {
@@ -76,6 +79,9 @@ pub enum Error {
     /// Zip export failed after the file was opened.
     #[error("export failed: {0}")]
     Export(String),
+    /// Overlay skill was invoked without being enabled.
+    #[error("overlay skill {0} is disabled")]
+    OverlayDisabled(String),
 }
 
 impl Error {

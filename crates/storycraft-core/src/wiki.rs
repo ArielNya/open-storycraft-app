@@ -60,6 +60,27 @@ pub fn wiki_pack_files(project: &ProjectRoot, skill: &str, chapter: u32) -> Vec<
             push_character_dir(project, &mut files);
         }
         "fiction-writechapter" => push_writechapter(project, &mut files, chapter),
+        // The bible is the whole book in one file, so it reads the whole canon
+        // that already exists and carries it across verbatim.
+        "fiction-storybible" => {
+            for rel in [
+                "Wiki/Style/genre.md",
+                "Wiki/Style/audience.md",
+                "Wiki/Story/theme.md",
+                "Wiki/Story/synopsis.md",
+                "Wiki/Style/style_guide.md",
+                "Wiki/Style/voice_prompt.md",
+                "Wiki/Outline/outline.md",
+            ] {
+                push_rel(project, &mut files, rel);
+            }
+            push_character_dir(project, &mut files);
+            for dir in ["Locations", "Organizations", "Systems", "Events"] {
+                for path in wiki_markdown_files(&project.wiki().join(dir)) {
+                    push_abs(project, &mut files, path, PackKind::Wiki);
+                }
+            }
+        }
         other if is_chunked_skill(other) => {
             push_rel(project, &mut files, "Wiki/Style/style_guide.md");
             push_rel(project, &mut files, "Wiki/Style/voice_prompt.md");

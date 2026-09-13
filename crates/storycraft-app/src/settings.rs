@@ -1,5 +1,6 @@
 //! Desktop settings file. API keys stay out of the book Wiki.
 
+use std::collections::BTreeMap;
 use std::fs;
 
 use serde::{Deserialize, Serialize};
@@ -32,7 +33,16 @@ pub struct AppSettings {
     /// Default model id.
     #[serde(default = "default_model")]
     pub model: String,
-    /// Input token budget hint (packer still uses char caps in v1).
+    /// Optional cheaper model for editorial / kill-pass skills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cheap_model: Option<String>,
+    /// Exact `skill → model` overrides.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub skill_models: BTreeMap<String, String>,
+    /// Overlay skill ids the user turned on (`ao3-writer`, `ao3`, `*`, …).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enabled_overlays: Vec<String>,
+    /// Packer total-char budget. `0` means the core default.
     #[serde(default = "default_budget")]
     pub token_budget: u32,
 }
@@ -63,6 +73,9 @@ impl Default for AppSettings {
             api_key: None,
             api_style: default_api_style(),
             model: default_model(),
+            cheap_model: None,
+            skill_models: BTreeMap::new(),
+            enabled_overlays: Vec::new(),
             token_budget: default_budget(),
         }
     }
@@ -77,7 +90,7 @@ pub fn load(app: &AppHandle) -> Result<AppSettings, AppError> {
     let path = paths::settings_file(app)?;
     match fs::read(&path) {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(AppSettings::default()),
-        Err(err) => Err(AppError::io(&path, err)),
+        Err(err) => Err(AppError::io(&path, &err)),
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map_err(|err| AppError::msg(format!("invalid settings: {err}"))),
     }
@@ -91,16 +104,16 @@ pub fn load(app: &AppHandle) -> Result<AppSettings, AppError> {
 pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), AppError> {
     let path = paths::settings_file(app)?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| AppError::io(parent, err))?;
+        fs::create_dir_all(parent).map_err(|err| AppError::io(parent, &err))?;
     }
     let bytes = serde_json::to_vec_pretty(settings)
         .map_err(|err| AppError::msg(format!("serialize settings: {err}")))?;
-    fs::write(&path, bytes).map_err(|err| AppError::io(&path, err))?;
+    fs::write(&path, bytes).map_err(|err| AppError::io(&path, &err))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(&path, perms).map_err(|err| AppError::io(&path, err))?;
+        fs::set_permissions(&path, perms).map_err(|err| AppError::io(&path, &err))?;
     }
     Ok(())
 }

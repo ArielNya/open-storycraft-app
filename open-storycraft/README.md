@@ -2,7 +2,7 @@
 
 Unpacked from the single-file library dump into the intended skill architecture.
 
-Forty-two craft-first skills plus the `open-storycraft` orchestrator. Each skill is a folder with `SKILL.md` plus optional `references/`, `assets/`, `scripts/`, and `data/`.
+Forty-four craft-first skills plus the `open-storycraft` orchestrator. Each skill is a folder with `SKILL.md` plus optional `references/`, `assets/`, `scripts/`, and `data/`.
 
 Start a book or resume one by invoking **open-storycraft**. It does not rewrite the child skills. It finds the project Wiki, prints a status board, and runs one skill at a time along the planning spine or the editorial ladder.
 
@@ -52,6 +52,12 @@ open-storycraft/
 │   └── SKILL.md
 ├── fiction-story-sparks/
 │   └── SKILL.md
+├── fiction-storybible/
+│   ├── SKILL.md
+│   ├── assets/
+│   │   └── storybible-template.md
+│   └── references/
+│       └── storybible-format.md
 ├── fiction-style/
 │   └── SKILL.md
 ├── fiction-synopsis/
@@ -92,6 +98,8 @@ open-storycraft/
 │   └── SKILL.md
 ├── skill-builder/
 │   └── SKILL.md
+├── storybible-import/
+│   └── SKILL.md
 ├── town-generator/
 │   └── SKILL.md
 ```
@@ -123,6 +131,7 @@ Companion files live beside each `SKILL.md` in `references/`, `assets/`, `script
 | `fiction-reviewchapter` | 3 | Chapter review orchestrator |
 | `fiction-scenes` | 8 | Scene list / scene cards |
 | `fiction-story-sparks` | 1 | Card-style story sparks |
+| `fiction-storybible` | 3 | Whole book as one portable `storybible.md` |
 | `fiction-style` | 15 | Style bible |
 | `fiction-synopsis` | 6 | Synopsis |
 | `fiction-theme` | 6 | Theme commitments |
@@ -143,6 +152,7 @@ Companion files live beside each `SKILL.md` in `references/`, `assets/`, `script
 | `nominalization-hunt` | 1 | Nominalization hunter |
 | `pangram` | 1 | Pangram-oriented AI-detection review |
 | `skill-builder` | 2 | Build new portable skills |
+| `storybible-import` | 1 | Unpack `storybible.md` into the book folder (local, no model) |
 | `town-generator` | 16 | Town name / place generator |
 
 ## How to use with Grok

@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 description = "Tauri 2 desktop (and later Android) shell for Open Storycraft"
 # Linux link deps: libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+# No libwebkit2gtk-4.1-dev? Unpack its headers into a local prefix and build with
+#   PKG_CONFIG_PATH=<prefix>/usr/lib/x86_64-linux-gnu/pkgconfig cargo build -p storycraft-app
+# The runtime .so is enough to run; only linking needs the -dev package.
 
 [lib]
 name = "storycraft_app"

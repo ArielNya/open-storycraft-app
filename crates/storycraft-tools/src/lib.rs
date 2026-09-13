@@ -17,7 +17,7 @@ pub use markov::{GenerateOpts, generate, generate_from_path, load_list, parse_li
 pub fn is_local_tool(skill: &str) -> bool {
     matches!(
         skill,
-        "burstiness-check" | "name-generator" | "town-generator"
+        "burstiness-check" | "name-generator" | "town-generator" | "storybible-import"
     )
 }
 

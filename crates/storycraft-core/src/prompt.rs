@@ -72,6 +72,8 @@ pub fn build_prompt(
 
 /// Pack the skill (plus Wiki files when a project is open) and compile the prompt.
 ///
+/// `total_chars` is the pack budget; `0` means [`DEFAULT_TOTAL_CHARS`].
+///
 /// # Errors
 ///
 /// Returns [`Error::Io`] if `SKILL.md` or a linked reference cannot be read.
@@ -81,13 +83,19 @@ pub fn prepare_skill(
     project: Option<&ProjectRoot>,
     chapter: u32,
     output_path: Option<&str>,
+    total_chars: usize,
 ) -> Result<(PackedContent, Prompt), Error> {
+    let total_chars = if total_chars == 0 {
+        DEFAULT_TOTAL_CHARS
+    } else {
+        total_chars
+    };
     let mut pack = pack_skill(manifest);
     if let Some(project) = project {
         pack.files
             .extend(wiki_pack_files(project, &manifest.name, chapter));
     }
-    let packed = pack.materialize(DEFAULT_PER_FILE_CHARS, DEFAULT_TOTAL_CHARS)?;
+    let packed = pack.materialize(DEFAULT_PER_FILE_CHARS, total_chars)?;
     let skill_md = std::fs::read_to_string(manifest.skill_md())
         .map_err(|err| Error::io(manifest.skill_md(), err))?;
     let prompt = build_prompt(manifest, &skill_md, &packed, answers, output_path);

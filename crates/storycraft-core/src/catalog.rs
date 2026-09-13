@@ -95,6 +95,16 @@ impl Catalog {
         self.skills.values()
     }
 
+    /// Skills visible with the current overlay enables.
+    pub fn iter_visible<'a>(
+        &'a self,
+        enabled_overlays: &'a [String],
+    ) -> impl Iterator<Item = &'a SkillManifest> + 'a {
+        self.skills
+            .values()
+            .filter(|skill| crate::overlay::overlay_allowed(&skill.name, enabled_overlays))
+    }
+
     /// Number of indexed skills.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -302,5 +312,34 @@ mod tests {
             vec!["fiction-synopsis", "fiction-characters"]
         );
         assert!(parse_requires("null").is_empty());
+    }
+
+    #[test]
+    fn iter_visible_hides_overlays_until_enabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("fiction-genre")).unwrap();
+        fs::write(
+            tmp.path().join("fiction-genre/SKILL.md"),
+            "---\nname: fiction-genre\ndescription: genre\n---\n# Genre\n",
+        )
+        .unwrap();
+        fs::create_dir_all(tmp.path().join("ao3-writer")).unwrap();
+        fs::write(
+            tmp.path().join("ao3-writer/SKILL.md"),
+            "---\nname: ao3-writer\ndescription: overlay\n---\n# AO3\n",
+        )
+        .unwrap();
+        let catalog = Catalog::load(tmp.path()).unwrap();
+        let hidden: Vec<&str> = catalog
+            .iter_visible(&[])
+            .map(|skill| skill.name.as_str())
+            .collect();
+        assert_eq!(hidden, vec!["fiction-genre"]);
+        let enabled = vec!["ao3-writer".to_owned()];
+        let shown: Vec<&str> = catalog
+            .iter_visible(&enabled)
+            .map(|skill| skill.name.as_str())
+            .collect();
+        assert_eq!(shown, vec!["ao3-writer", "fiction-genre"]);
     }
 }

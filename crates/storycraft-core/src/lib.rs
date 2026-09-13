@@ -12,6 +12,7 @@
 
 #![deny(clippy::correctness)]
 
+mod bible;
 mod catalog;
 mod chunk;
 mod diff;
@@ -20,15 +21,21 @@ mod export;
 mod job;
 mod mode;
 mod output;
+mod overlay;
 mod pack;
 mod paths;
 mod project;
 mod prompt;
+mod routing;
 mod spine;
 mod status;
 mod validate;
 mod wiki;
 
+pub use bible::{
+    BibleDoc, STORYBIBLE_FILE, find_storybible, import_preview as storybible_import_preview,
+    parse_storybible, render_storybible, storybible_title,
+};
 pub use catalog::{Catalog, SkillManifest, find_skills_dir};
 pub use chunk::{
     CHUNK_LINES, LineChunk, apply_chunk_edit, is_chunked_skill, merge_chunks, split_lines,
@@ -42,6 +49,7 @@ pub use output::{
     SkillOutput, ensure_requires, output_rel_path, resolve_output_path, skill_output,
     split_character_preview,
 };
+pub use overlay::{OVERLAY_SKILLS, is_overlay, overlay_allowed};
 pub use pack::{
     ContextPack, DEFAULT_PER_FILE_CHARS, DEFAULT_TOTAL_CHARS, PackFile, PackKind, PackedContent,
     PackedText, pack_skill,
@@ -52,6 +60,7 @@ pub use paths::{
 };
 pub use project::{ProjectRoot, discover, discover_one};
 pub use prompt::{Prompt, build_chunk_prompt, build_prompt, prepare_skill};
+pub use routing::{ModelRouter, is_cheap_skill};
 pub use status::{NextAction, Slot, SlotSnapshot, SlotState, StatusBoard, StatusSnapshot};
 pub use validate::validate_preview;
 pub use wiki::{default_chapter_rel, wiki_pack_files};
