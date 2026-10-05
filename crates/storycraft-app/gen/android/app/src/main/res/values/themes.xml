@@ -1,6 +1,12 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Theme.storycraft_app" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+    <!-- The web UI is dark in both system themes, so the native frame is too:
+         no white flash before the page paints, light bar icons. -->
+    <style name="Theme.storycraft_app" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@color/storycraft_bg</item>
+        <item name="colorPrimary">@color/storycraft_accent</item>
+        <item name="colorAccent">@color/storycraft_accent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>
