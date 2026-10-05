@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter};
 use crate::android;
 use crate::error::AppError;
 use crate::paths;
-use crate::settings::AppSettings;
+use crate::settings::{AppSettings, ProviderProfile};
 
 /// Resolve exactly one project, or none.
 pub(crate) fn resolve_project(path: &Path) -> Result<Option<ProjectRoot>, AppError> {
@@ -99,10 +99,11 @@ pub(crate) async fn execute_run(
         );
     }
 
+    let profile = settings.active();
     let router = ModelRouter::new(
-        settings.model.clone(),
-        settings.cheap_model.clone(),
-        settings.skill_models.clone(),
+        profile.model.clone(),
+        profile.cheap_model.clone(),
+        profile.skill_models.clone(),
     );
     let model = router.model_for(skill).to_owned();
     let budget = usize::try_from(settings.token_budget).unwrap_or(0);
@@ -131,7 +132,7 @@ pub(crate) async fn execute_run(
         chapter,
         answers,
         packed_context_hash: packed.hash,
-        provider: settings.provider.clone(),
+        provider: profile.provider.clone(),
         model,
         output_path,
     })?;
@@ -139,8 +140,8 @@ pub(crate) async fn execute_run(
     store.set_status(&mut job, JobStatus::Running)?;
     let _job_notice = android::JobNotice::start(app, &job);
 
-    let stored_key = crate::secrets::SecretStore::open(app)?.get()?;
-    let client = build_client(app, settings, &job.model, stored_key).await?;
+    let stored_key = crate::secrets::SecretStore::open_profile(app, &profile.id)?.get()?;
+    let client = build_client(app, profile, &job.model, stored_key).await?;
     let cancel = CancellationToken::new();
     let text = if let Some(chapter_text) = &chapter_text {
         run_report(app, &store, &job, &client, &prompt, chapter_text, &cancel).await
@@ -180,8 +181,8 @@ pub(crate) async fn execute_run(
         Err(err) => {
             store.fail(&mut job, err.to_string())?;
             Err(AppError::msg(format!(
-                "{err}; provider '{}' at {}",
-                settings.provider, settings.base_url
+                "{err}; profile '{}' ({}) at {}",
+                profile.name, profile.provider, profile.base_url
             )))
         }
     }
@@ -482,24 +483,24 @@ fn run_local(
     Ok(job)
 }
 
-/// Provider client for `settings`, with the stored key or OAuth token attached.
+/// Provider client for `profile`, with the stored key or OAuth token attached.
 ///
 /// `stored_key` comes from the secret store; it is ignored for `grok-oauth`,
 /// which uses the OAuth token instead.
 pub(crate) async fn build_client(
     app: &AppHandle,
-    settings: &AppSettings,
+    profile: &ProviderProfile,
     model: &str,
     stored_key: Option<Secret>,
 ) -> Result<OpenAiClient, AppError> {
-    let style: ApiStyle = settings
+    let style: ApiStyle = profile
         .api_style
         .parse()
         .map_err(|err: storycraft_llm::Error| AppError::msg(err.to_string()))?;
-    let mut config = ProviderConfig::openai_compat(&settings.base_url, model);
-    config.name = settings.provider.clone();
+    let mut config = ProviderConfig::openai_compat(&profile.base_url, model);
+    config.name = profile.provider.clone();
     config.api_style = style;
-    config.api_key = match settings.provider.as_str() {
+    config.api_key = match profile.provider.as_str() {
         "grok-oauth" => Some(Secret::new(oauth_access_token(app).await?)),
         _ => stored_key,
     };

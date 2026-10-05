@@ -84,7 +84,7 @@ impl Backend {
 #[derive(Debug, Clone)]
 pub struct SecretStore {
     backend: Backend,
-    account: &'static str,
+    account: String,
     path: PathBuf,
 }
 
@@ -95,7 +95,28 @@ impl SecretStore {
     ///
     /// Returns [`AppError`] when the app config directory cannot be resolved.
     pub fn open(app: &AppHandle) -> Result<Self, AppError> {
-        Ok(Self::with(API_KEY, paths::secret_file(app)?))
+        Self::open_profile(app, crate::settings::DEFAULT_PROFILE)
+    }
+
+    /// Open the store for one connection profile's API key.
+    ///
+    /// The default profile uses the entry older single-provider builds wrote
+    /// (`api-key`); every other profile gets `api-key/<id>`, and its fallback
+    /// file `api-key-<id>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError`] when the app config directory cannot be resolved.
+    pub fn open_profile(app: &AppHandle, profile: &str) -> Result<Self, AppError> {
+        let file = paths::secret_file(app)?;
+        Ok(if profile == crate::settings::DEFAULT_PROFILE {
+            Self::with(API_KEY.to_owned(), file)
+        } else {
+            Self::with(
+                format!("{API_KEY}/{profile}"),
+                file.with_file_name(format!("{API_KEY}-{profile}")),
+            )
+        })
     }
 
     /// Open the store for the xAI OAuth token set.
@@ -107,10 +128,10 @@ impl SecretStore {
     ///
     /// Returns [`AppError`] when the app config directory cannot be resolved.
     pub fn open_oauth(app: &AppHandle) -> Result<Self, AppError> {
-        Ok(Self::with(OAUTH, paths::oauth_file(app)?))
+        Ok(Self::with(OAUTH.to_owned(), paths::oauth_file(app)?))
     }
 
-    fn with(account: &'static str, path: PathBuf) -> Self {
+    fn with(account: String, path: PathBuf) -> Self {
         let backend = match std::env::var(BACKEND_ENV).ok().as_deref() {
             Some("file") => Backend::File,
             Some("keyring") => Backend::Keyring,
@@ -139,7 +160,7 @@ impl SecretStore {
         match self.backend {
             // A keyring miss still checks the file: a secret too big for the
             // keyring, or one an older build wrote there, lives in it.
-            Backend::Keyring => match keyring_get(self.account)? {
+            Backend::Keyring => match keyring_get(&self.account)? {
                 Some(secret) => Ok(Some(secret)),
                 None => file_get(&self.path),
             },
@@ -163,13 +184,13 @@ impl SecretStore {
     /// Returns [`AppError`] if the backend cannot write.
     pub fn set(&self, value: &str) -> Result<(), AppError> {
         match self.backend {
-            Backend::Keyring => match keyring_set(self.account, value) {
+            Backend::Keyring => match keyring_set(&self.account, value) {
                 // Drop any older file copy so it cannot shadow the new value.
                 Ok(()) => file_clear(&self.path),
                 // ponytail: Credential Manager caps a secret at 2560 bytes; a
                 // token set past that goes to the file instead of failing sign-in.
                 Err(err) => {
-                    tracing::warn!(%err, account = self.account, "keyring refused the secret; using the file");
+                    tracing::warn!(%err, account = %self.account, "keyring refused the secret; using the file");
                     file_set(&self.path, value)
                 }
             },
@@ -184,7 +205,7 @@ impl SecretStore {
     /// Returns [`AppError`] if the backend cannot delete.
     pub fn clear(&self) -> Result<(), AppError> {
         if self.backend == Backend::Keyring {
-            keyring_clear(self.account)?;
+            keyring_clear(&self.account)?;
         }
         file_clear(&self.path)
     }
@@ -340,7 +361,7 @@ impl SecretStore {
     pub(crate) fn for_test(path: PathBuf) -> Self {
         Self {
             backend: Backend::File,
-            account: API_KEY,
+            account: API_KEY.to_owned(),
             path,
         }
     }

@@ -89,8 +89,19 @@
 
     <main id="view-settings" class="view hidden">
       <section class="card">
-        <h2>Provider</h2>
+        <h2>Connection</h2>
         <label>Profile
+          <select id="set-profile"></select>
+        </label>
+        <div class="row">
+          <button id="btn-profile-new" type="button">New profile</button>
+          <button id="btn-profile-delete" type="button">Delete profile</button>
+        </div>
+        <p class="muted">The selected profile is the one runs use. Each keeps its own URL, models and key.</p>
+        <label>Profile name
+          <input id="set-profile-name" type="text" spellcheck="false" placeholder="NVIDIA NIM, Google AI Studio…" />
+        </label>
+        <label>Provider type
           <select id="set-provider">
             <option value="openai-compat">openai-compat</option>
             <option value="xai-apikey">xai-apikey</option>

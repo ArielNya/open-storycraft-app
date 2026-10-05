@@ -15,6 +15,7 @@ The long-form design notes are in [OPEN_STORYCRAFT_APP_PLAN.md](OPEN_STORYCRAFT_
 - **Edit view** — the ladder (cold read, dev edit, style review, AI-tells, prose, line, filter words, fragments, nominalizations, kill passes) plus the local burstiness report.
 - **Storybible** — write the whole book out as one portable `storybible.md`, or unpack one into a book folder. See [Storybible](#storybible).
 - **Command palette** — `Ctrl+K` lists every skill in the pack with its one-line description, filters as you type, marks the ones that run on device, and runs the one you pick. It is how you reach the skills the board does not recommend.
+- **Connection profiles** — save several providers (NVIDIA NIM, Google AI Studio, a local LM Studio…), each with its own URL, models and key, and switch between them in Settings. See [Connection profiles](#connection-profiles).
 - **Model picker** — the settings screen asks your provider what it serves and offers it in a dropdown. See [Configuring a provider](#configuring-a-provider).
 - **API key in the OS keyring** — never in the settings file, never sent back to the page. See [Where the key lives](#where-the-key-lives).
 - **Desktop shell** — a sidebar that replaces the bottom bar past 720px, cards that use the width (status and jobs side by side, file list beside the preview), a job panel in the corner instead of a sheet across the bottom, hover/focus states, and keyboard shortcuts. Under 720px it is the phone layout: one column, nav along the bottom.
@@ -84,7 +85,7 @@ So a release binary run from the repo root finds the vendored pack, and `STORYCR
 
 ## Configuring a provider
 
-Settings live in the app config directory — `~/.config/dev.openstorycraft.app/app.json` on Linux — written mode `0600`. Override the path with `STORYCRAFT_APP_SETTINGS=/tmp/app.json` (useful for throwaway runs).
+Settings live in the app config directory — `%APPDATA%\dev.openstorycraft.app\app.json` on Windows, `~/.config/dev.openstorycraft.app/app.json` on Linux (mode `0600`). Override the path with `STORYCRAFT_APP_SETTINGS=/tmp/app.json` (useful for throwaway runs).
 
 | Field | Notes |
 |---|---|
@@ -114,6 +115,15 @@ Details worth knowing:
 # what a provider serves, without the app
 curl -s -H "Authorization: Bearer $STORYCRAFT_API_KEY" https://api.x.ai/v1/models | head -c 400
 ```
+
+### Connection profiles
+
+Settings → Connection holds any number of named profiles. Each one keeps its own provider type, base URL, API style, model, cheap model, per-skill models, and API key. The selected profile is the one runs use; pick another and press **Save settings** to switch.
+
+- **New profile** starts an empty one; **Delete profile** removes it *and its stored key* when you save. The last profile cannot be deleted.
+- Keys are per profile: the first profile keeps the Credential Manager entry `api-key`, later ones get `api-key/<profile id>`. Typing a key always stores it for the profile on screen.
+- A settings file from an older build (one provider at the top level) loads as a single profile called **Default**, with its key where it already was.
+- Token budget, skills folder and overlays are global, not per profile.
 
 ### Where the key lives
 

@@ -62,24 +62,9 @@ function showView(name) {
 
 async function loadSettings() {
   const s = await invoke("get_settings");
-  $("set-provider").value = s.provider;
-  $("set-base").value = s.base_url;
-  // The key is write-only: the host never sends it back, so the field starts
-  // empty and only ever carries a new value up.
-  $("set-key").value = "";
-  state.clearKey = false;
-  renderKeyState(s);
-  $("set-style").value = s.api_style;
-  $("set-model").value = s.model;
-  $("set-cheap").value = s.cheap_model || "";
+  applySettings(s);
   $("set-budget").value = s.token_budget || 48000;
-  $("set-routes").value = Object.entries(s.skill_models || {})
-    .map(([skill, model]) => `${skill}=${model}`)
-    .join("\n");
   $("set-skills").value = s.skills_dir || "";
-  state.secretBackendLabel = s.secret_backend_label || "the secret store";
-  $("models-state").textContent = "Paste a URL and key above, then load what the provider offers.";
-  fillModelPickers([], false);
   state.enabledOverlays = s.enabled_overlays || [];
   document.querySelectorAll("[data-overlay]").forEach((el) => {
     el.checked = state.enabledOverlays.includes(el.dataset.overlay);
@@ -91,34 +76,128 @@ async function loadSettings() {
 }
 
 /**
- * Where the API key lives, in words. The key itself never reaches the page.
+ * Take a settings reply from the host: the profile list, which one is active,
+ * and which have a key. Draws the active profile into the form.
  */
-function renderKeyState(settings) {
-  const where = settings.secret_backend_label || state.secretBackendLabel || "the secret store";
+function applySettings(s) {
+  state.settings = s;
+  state.profiles = (s.profiles || []).map((profile) => ({ ...profile }));
+  state.activeProfile = s.active_profile;
+  state.keyedProfiles = new Set(s.keyed_profiles || []);
+  state.secretBackendLabel = s.secret_backend_label || "the secret store";
+  renderProfiles();
+  showProfile(state.activeProfile);
+}
+
+function currentProfile() {
+  return state.profiles.find((p) => p.id === state.activeProfile) || state.profiles[0];
+}
+
+function renderProfiles() {
+  $("set-profile").innerHTML = state.profiles
+    .map((p) => `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name || p.id)}</option>`)
+    .join("");
+  $("set-profile").value = state.activeProfile;
+  $("btn-profile-delete").disabled = state.profiles.length < 2;
+}
+
+/** Draw one profile into the form. A half-typed key never follows a switch. */
+function showProfile(id) {
+  state.activeProfile = id;
+  const p = currentProfile();
+  $("set-profile").value = p.id;
+  $("set-profile-name").value = p.name || "";
+  $("set-provider").value = p.provider;
+  $("set-base").value = p.base_url;
+  $("set-style").value = p.api_style;
+  $("set-model").value = p.model;
+  $("set-cheap").value = p.cheap_model || "";
+  $("set-routes").value = Object.entries(p.skill_models || {})
+    .map(([skill, model]) => `${skill}=${model}`)
+    .join("\n");
+  // The key is write-only: the host never sends it back, so the field starts
+  // empty and only ever carries a new value up.
+  $("set-key").value = "";
+  state.clearKey = false;
+  renderKeyState();
+  // A loaded model list belongs to one provider; keep it across a save, not
+  // across a switch.
+  if (state.shownProfile !== p.id) {
+    state.shownProfile = p.id;
+    state.models = [];
+    $("models-state").textContent = "Paste a URL and key above, then load what the provider offers.";
+    fillModelPickers([], false);
+  }
+}
+
+/** Copy the form back into the profile it shows. */
+function stashProfile() {
+  const p = currentProfile();
+  if (!p) return;
+  p.name = $("set-profile-name").value.trim() || p.id;
+  p.provider = $("set-provider").value;
+  p.base_url = $("set-base").value.trim();
+  p.api_style = $("set-style").value;
+  p.model = $("set-model").value.trim();
+  p.cheap_model = $("set-cheap").value.trim() || null;
+  p.skill_models = parseRoutes($("set-routes").value);
+}
+
+function newProfile() {
+  stashProfile();
+  const id = `p-${Date.now().toString(36)}`;
+  state.profiles.push({
+    id,
+    name: "New profile",
+    provider: "openai-compat",
+    base_url: "",
+    api_style: "chat_completions",
+    model: "",
+    cheap_model: null,
+    skill_models: {},
+  });
+  renderProfiles();
+  showProfile(id);
+  $("set-profile-name").select();
+  toast("New profile: fill it in, then Save settings");
+}
+
+function deleteProfile() {
+  if (state.profiles.length < 2) return;
+  const p = currentProfile();
+  if (!confirm(`Delete the profile "${p.name}" and its stored key?`)) return;
+  state.profiles = state.profiles.filter((other) => other.id !== p.id);
+  renderProfiles();
+  showProfile(state.profiles[0].id);
+  toast("Profile removed: Save settings to make it final");
+}
+
+/**
+ * Where the active profile's key lives, in words. The key itself never
+ * reaches the page.
+ */
+function renderKeyState() {
+  const where = state.secretBackendLabel || "the secret store";
   if (state.clearKey) {
-    $("key-state").textContent = "The stored key will be forgotten when you save.";
+    $("key-state").textContent = "This profile's stored key will be forgotten when you save.";
     return;
   }
-  $("key-state").textContent = settings.has_api_key
-    ? `A key is stored in ${where}. Type a new one to replace it.`
-    : `No key stored yet. It will go to ${where}.`;
+  $("key-state").textContent = state.keyedProfiles?.has(state.activeProfile)
+    ? `A key is stored for this profile in ${where}. Type a new one to replace it.`
+    : `No key stored for this profile yet. It will go to ${where}.`;
 }
 
 /** The settings form as the host expects it. Unsaved edits included. */
-async function collectSettings() {
-  const current = await invoke("get_settings");
+function collectSettings() {
+  stashProfile();
   return {
-    ...current,
+    ...state.settings,
     last_project: state.project,
-    provider: $("set-provider").value,
-    base_url: $("set-base").value.trim(),
+    profiles: state.profiles,
+    active_profile: state.activeProfile,
     api_key: $("set-key").value.trim() || null,
     clear_api_key: state.clearKey,
-    api_style: $("set-style").value,
-    model: $("set-model").value.trim(),
-    cheap_model: $("set-cheap").value.trim() || null,
     token_budget: Number($("set-budget").value) || 48000,
-    skill_models: parseRoutes($("set-routes").value),
     enabled_overlays: [...document.querySelectorAll("[data-overlay]:checked")].map(
       (el) => el.dataset.overlay
     ),
@@ -127,16 +206,19 @@ async function collectSettings() {
 }
 
 async function saveSettings() {
-  const next = await collectSettings();
+  const next = collectSettings();
   state.enabledOverlays = next.enabled_overlays;
   const saved = await invoke("save_settings", { settings: next });
   // The key is now in the secret store, not in the form.
-  $("set-key").value = "";
-  state.clearKey = false;
-  renderKeyState(saved);
+  applySettings(saved);
   if (state.project) await renderLadder();
-  toast("Settings saved");
+  toast(`Settings saved — using "${currentProfile().name}"`);
 }
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+const escapeAttr = escapeHtml;
 
 /**
  * Home leads with the status board and the jobs list; the folder controls only
@@ -405,12 +487,13 @@ async function loadModels() {
   const settings = await collectSettings();
   const button = $("btn-models");
   button.disabled = true;
-  $("models-state").textContent = `Loading models from ${settings.base_url}…`;
+  const baseUrl = currentProfile().base_url;
+  $("models-state").textContent = `Loading models from ${baseUrl}…`;
   try {
     const models = await invoke("list_models", { settings });
     state.models = models;
     fillModelPickers(models, true);
-    $("models-state").textContent = `${models.length} models from ${settings.base_url}`;
+    $("models-state").textContent = `${models.length} models from ${baseUrl}`;
   } catch (err) {
     // Keep the last good list: a failed refresh must not throw away options
     // that already worked.
@@ -753,8 +836,18 @@ async function main() {
   $("btn-key-clear").onclick = () => {
     state.clearKey = true;
     $("set-key").value = "";
-    renderKeyState({ has_api_key: false });
+    renderKeyState();
   };
+  $("set-profile").onchange = (ev) => {
+    stashProfile();
+    showProfile(ev.target.value);
+  };
+  $("set-profile-name").oninput = () => {
+    stashProfile();
+    renderProfiles();
+  };
+  $("btn-profile-new").onclick = newProfile;
+  $("btn-profile-delete").onclick = deleteProfile;
   $("set-model-pick").onchange = (ev) => {
     if (ev.target.value) $("set-model").value = ev.target.value;
   };

@@ -86,25 +86,41 @@ fn reject_escape(rel: &str) -> Result<(), AppError> {
 /// Settings for the UI: everything except the API key, plus where the key lives.
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Result<SettingsDto, AppError> {
-    let store = SecretStore::open(&app)?;
-    Ok(SettingsDto::from_settings(settings::load(&app)?, &store))
+    Ok(dto_for(&app, settings::load(&app)?))
 }
 
-/// Persist settings, and store or forget the API key.
+/// The outgoing view of `settings`, with which profiles have a key on file.
+fn dto_for(app: &AppHandle, settings: settings::AppSettings) -> SettingsDto {
+    SettingsDto::from_settings(settings, |id| SecretStore::open_profile(app, id).ok())
+}
+
+/// Persist settings, and store or forget the active profile's API key.
 ///
-/// A non-empty `api_key` replaces the stored one; `clear_api_key` forgets it.
-/// Neither ever comes back out: the reply carries `has_api_key` only.
+/// A non-empty `api_key` replaces the active profile's stored key;
+/// `clear_api_key` forgets it. A profile that is gone from the list takes its
+/// key with it. No key ever comes back out: the reply carries
+/// `keyed_profiles` only.
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: SettingsDto) -> Result<SettingsDto, AppError> {
-    let store = SecretStore::open(&app)?;
-    if settings.clear_api_key {
+    let mut dto = settings;
+    dto.settings.normalize()?;
+    let previous = settings::load(&app)?;
+    for gone in previous
+        .profiles
+        .iter()
+        .filter(|old| !dto.settings.profiles.iter().any(|new| new.id == old.id))
+    {
+        SecretStore::open_profile(&app, &gone.id)?.clear()?;
+    }
+    let store = SecretStore::open_profile(&app, &dto.settings.active_profile)?;
+    if dto.clear_api_key {
         store.clear()?;
     }
-    if let Some(key) = settings.incoming_key() {
+    if let Some(key) = dto.incoming_key() {
         store.set(key)?;
     }
-    settings::save(&app, &settings.settings)?;
-    Ok(SettingsDto::from_settings(settings.settings, &store))
+    settings::save(&app, &dto.settings)?;
+    Ok(dto_for(&app, dto.settings))
 }
 
 /// Model ids the provider advertises at `GET {base_url}/models`.
@@ -114,19 +130,21 @@ pub fn save_settings(app: AppHandle, settings: SettingsDto) -> Result<SettingsDt
 /// for the request only; it is never logged and never written here.
 #[tauri::command]
 pub async fn list_models(app: AppHandle, settings: SettingsDto) -> Result<Vec<String>, AppError> {
-    // A key typed into the form is used but not stored; otherwise the stored one.
-    let store = SecretStore::open(&app)?;
+    let mut settings = settings;
+    settings.settings.normalize()?;
+    let profile = settings.settings.active();
+    // A key typed into the form is used but not stored; otherwise the
+    // profile's stored one.
     let key = match settings.incoming_key() {
         Some(key) => Some(storycraft_llm::Secret::new(key)),
-        None => store.get()?,
+        None => SecretStore::open_profile(&app, &profile.id)?.get()?,
     };
-    let client =
-        host::build_client(&app, &settings.settings, &settings.settings.model, key).await?;
+    let client = host::build_client(&app, profile, &profile.model, key).await?;
     let models = client.list_models().await?;
     tracing::info!(
         count = models.len(),
-        base_url = %settings.settings.base_url,
-        provider = %settings.settings.provider,
+        profile = %profile.name,
+        base_url = %profile.base_url,
         "listed provider models"
     );
     Ok(models)
