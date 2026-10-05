@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Match --bg in ui/app.css so the launch frame and the inset padding
+    <!-- Match the page background (the bg colour token in ui/app.css) so the launch frame and the inset padding
          are the same colour as the page. -->
     <color name="storycraft_bg">#FF161310</color>
     <color name="storycraft_bar">#FF120F0C</color>
