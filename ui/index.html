@@ -2,18 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#161310" />
+    <meta name="color-scheme" content="dark" />
     <title>Open Storycraft</title>
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
     <header class="top">
-      <div>
+      <div class="titles">
         <p class="eyebrow">Open Storycraft</p>
         <h1 id="title">No book open</h1>
         <p id="subtitle" class="muted">Pick a folder that contains Wiki/</p>
       </div>
-      <button id="btn-palette" type="button" title="Run any skill (Ctrl+K)">Run a skill</button>
+      <button id="btn-palette" type="button" title="Run any skill (Ctrl+K)" aria-label="Run a skill">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+        <span>Run a skill</span>
+      </button>
     </header>
 
     <main id="view-home" class="view">
@@ -153,8 +158,10 @@
         <label>Skills dir
           <input id="set-skills" type="text" spellcheck="false" placeholder="optional" />
         </label>
-        <button id="btn-save-settings" class="primary" type="button">Save settings</button>
-        <button id="btn-export" type="button">Export zip</button>
+        <div class="sticky-actions">
+          <button id="btn-save-settings" class="primary" type="button">Save settings</button>
+          <button id="btn-export" type="button">Export zip</button>
+        </div>
       </section>
       <section class="card">
         <h2>Overlays</h2>
@@ -172,7 +179,7 @@
           iOS is not this build. SuperGrok is not console API billing.
         </p>
       </section>
-      <section class="card">
+      <section class="card" id="card-keys">
         <h2>Shortcuts</h2>
         <ul class="keys">
           <li><span>Switch view</span><kbd>Ctrl</kbd> <kbd>1</kbd>–<kbd>5</kbd></li>
@@ -199,10 +206,13 @@
       </section>
     </main>
 
-    <section id="job-card" class="job-card hidden">
+    <section id="job-card" class="job-card hidden" aria-live="polite">
       <header>
         <strong id="job-title">Job</strong>
         <span id="job-state" class="pill"></span>
+        <button id="btn-x-job" class="icon-btn" type="button" title="Close (Esc)" aria-label="Close">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
       </header>
       <p id="job-wait" class="muted hidden"></p>
       <pre id="job-preview" class="md"></pre>
@@ -223,14 +233,24 @@
       <p id="palette-hint" class="muted"></p>
     </div>
 
-    <p id="toast" class="toast hidden"></p>
+    <div id="scrim" class="scrim hidden"></div>
 
-    <nav class="bottom">
-      <button data-view="home" class="active" type="button">Home</button>
-      <button data-view="book" type="button">Book</button>
-      <button data-view="write" type="button">Write</button>
-      <button data-view="edit" type="button">Edit</button>
-      <button data-view="settings" type="button">Settings</button>
+    <div id="confirm" class="dialog hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirm-text">
+      <p id="confirm-text"></p>
+      <div class="row">
+        <button id="confirm-cancel" type="button">Cancel</button>
+        <button id="confirm-ok" class="primary danger" type="button">Delete</button>
+      </div>
+    </div>
+
+    <p id="toast" class="toast hidden" role="status"></p>
+
+    <nav class="bottom" aria-label="Views">
+      <button data-view="home" class="active" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg><span>Home</span></button>
+      <button data-view="book" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M8 7h7"/></svg><span>Book</span></button>
+      <button data-view="write" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg><span>Write</span></button>
+      <button data-view="edit" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h6"/><path d="m15 17 2 2 4-4"/></svg><span>Edit</span></button>
+      <button data-view="settings" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span>Settings</span></button>
     </nav>
 
     <script src="app.js"></script>

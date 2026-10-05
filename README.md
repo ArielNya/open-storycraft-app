@@ -18,7 +18,7 @@ The long-form design notes are in [OPEN_STORYCRAFT_APP_PLAN.md](OPEN_STORYCRAFT_
 - **Connection profiles** — save several providers (NVIDIA NIM, Google AI Studio, a local LM Studio…), each with its own URL, models and key, and switch between them in Settings. See [Connection profiles](#connection-profiles).
 - **Model picker** — the settings screen asks your provider what it serves and offers it in a dropdown. See [Configuring a provider](#configuring-a-provider).
 - **API key in the OS keyring** — never in the settings file, never sent back to the page. See [Where the key lives](#where-the-key-lives).
-- **Desktop shell** — a sidebar that replaces the bottom bar past 720px, cards that use the width (status and jobs side by side, file list beside the preview), a job panel in the corner instead of a sheet across the bottom, hover/focus states, and keyboard shortcuts. Under 720px it is the phone layout: one column, nav along the bottom.
+- **Desktop shell** — a sidebar that replaces the bottom bar past 720px, cards that use the width (status and jobs side by side, file list beside the preview), a job panel in the corner instead of a sheet across the bottom, hover/focus states, and keyboard shortcuts. Under 720px it is the phone layout: one column, an icon nav along the bottom, the job card as a bottom sheet, a Save bar that stays in reach on Settings, and the Android back button/gesture closing the topmost dialog, sheet or view before it leaves the app. On Android the system bars are drawn dark to match, and the page is padded for the status bar, gesture bar and keyboard so a focused field is never hidden.
 - **Sideload builds** — Windows installer (NSIS `.exe`), desktop binary, `.deb`, and a signed Android APK.
 
 Not here yet: Android Keystore-backed encryption for the key and tokens (Android uses app-private storage), iOS, and the world-pack UI (the world skills run, the board slot is there, but there is no world browser).
@@ -284,8 +284,15 @@ printf 'keyAlias=upload\npassword=<password>\nstoreFile=../upload-keystore.jks\n
 
 Keep the keystore and its password: Android refuses to install an update signed with a different key. A debug APK (`--debug`) needs no keystore but is roughly twenty times larger and unoptimized. `storeFile` is resolved relative to `gen/android/app/`, which is why the example writes `../upload-keystore.jks`.
 
+## Releases
+
+Prebuilt binaries are on the [Releases page](../../releases): Windows installer and portable zip, Linux `.deb`, AppImage and tarball, and an Android APK.
+
+They are built by `.github/workflows/release.yml`. Push a tag (`git tag v0.1.0 && git push origin v0.1.0`) or run the *Release* workflow by hand with a tag name; it builds on GitHub's Windows and Ubuntu runners and attaches everything to a release for that tag.
+
+To sign the APK with your own key (needed for each release to install as an update over the last), add repository secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 upload-keystore.jks`), `ANDROID_KEYSTORE_PASSWORD` and optionally `ANDROID_KEY_ALIAS` (default `upload`). Without them each run signs with a throwaway key.
+
 ## Known limitations
 
 - The bundle identifier `dev.openstorycraft.app` ends in `.app`; tauri warns about it. Harmless on Android, Windows and Linux, but changing it later changes the Android package name and the desktop config directory.
-- The APK ships `arm64-v8a` only unless you build more ABIs.
-- No CI configuration is checked in; the commands above are the gates.
+- A local `--target aarch64` build ships `arm64-v8a` only; the release workflow builds `arm64-v8a`, `armeabi-v7a` and `x86_64`.

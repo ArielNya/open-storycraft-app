@@ -37,7 +37,8 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.remove("hidden");
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add("hidden"), 4000);
+  // Long messages (errors, paths) get longer to read.
+  toast._t = setTimeout(() => el.classList.add("hidden"), Math.min(9000, 3000 + msg.length * 40));
 }
 
 /** Tauri rejects with the serialized error string, not an Error. */
@@ -53,10 +54,105 @@ function esc(text) {
 }
 
 function showView(name) {
+  const view = $(`view-${name}`);
+  const already = !view.classList.contains("hidden");
   document.querySelectorAll("main.view").forEach((el) => el.classList.add("hidden"));
-  $(`view-${name}`).classList.remove("hidden");
+  view.classList.remove("hidden");
+  // Tapping the open view's tab again goes back to its top, as on Android.
+  if (already) view.scrollTo({ top: 0, behavior: "smooth" });
+  state.view = name;
   document.querySelectorAll("nav.bottom button").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === name);
+    const active = btn.dataset.view === name;
+    btn.classList.toggle("active", active);
+    if (active) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
+  });
+  syncBack();
+}
+
+function isOpen(id) {
+  return !$(id).classList.contains("hidden");
+}
+
+/**
+ * The Android back button (and gesture) walks the webview history, so keep one
+ * history entry armed while anything is open that back should close: a
+ * dialog, the palette, the job card, or a view other than Home. Back closes
+ * the topmost of those; with nothing open it leaves the app as usual.
+ */
+const backNav = { armed: false, ignoreNext: false };
+
+function somethingOpen() {
+  return (
+    isOpen("confirm") || isOpen("palette") || isOpen("job-card") || (state.view || "home") !== "home"
+  );
+}
+
+function syncBack() {
+  const open = somethingOpen();
+  if (open && !backNav.armed) {
+    history.pushState({ storycraft: true }, "");
+    backNav.armed = true;
+  } else if (!open && backNav.armed) {
+    // Everything was closed by a button: drop the entry so the next back
+    // press leaves the app instead of doing nothing.
+    backNav.armed = false;
+    backNav.ignoreNext = true;
+    history.back();
+  }
+}
+
+function closeTopmost() {
+  if (isOpen("confirm")) $("confirm-cancel").click();
+  else if (isOpen("palette")) closePalette();
+  else if (isOpen("job-card")) closeJob();
+  else if ((state.view || "home") !== "home") showView("home");
+}
+
+function bindBack() {
+  window.addEventListener("popstate", () => {
+    if (backNav.ignoreNext) {
+      backNav.ignoreNext = false;
+      return;
+    }
+    backNav.armed = false;
+    closeTopmost();
+    syncBack();
+  });
+}
+
+function closeJob() {
+  $("job-card").classList.add("hidden");
+  syncBack();
+}
+
+function showScrim(onTap) {
+  const scrim = $("scrim");
+  scrim.classList.remove("hidden");
+  scrim.onclick = onTap;
+}
+
+function hideScrim() {
+  $("scrim").classList.add("hidden");
+}
+
+/** An in-page yes/no: window.confirm() is not wired up in every webview. */
+function askConfirm(message, okLabel) {
+  return new Promise((resolve) => {
+    const finish = (answer) => {
+      $("confirm").classList.add("hidden");
+      hideScrim();
+      syncBack();
+      resolve(answer);
+    };
+    $("confirm-text").textContent = message;
+    $("confirm-ok").textContent = okLabel;
+    $("confirm-ok").onclick = () => finish(true);
+    $("confirm-cancel").onclick = () => finish(false);
+    $("confirm").classList.remove("hidden");
+    showScrim(() => finish(false));
+    syncBack();
+    $("confirm-cancel").focus();
   });
 }
 
@@ -162,10 +258,10 @@ function newProfile() {
   toast("New profile: fill it in, then Save settings");
 }
 
-function deleteProfile() {
+async function deleteProfile() {
   if (state.profiles.length < 2) return;
   const p = currentProfile();
-  if (!confirm(`Delete the profile "${p.name}" and its stored key?`)) return;
+  if (!(await askConfirm(`Delete the profile "${p.name}" and its stored key?`, "Delete"))) return;
   state.profiles = state.profiles.filter((other) => other.id !== p.id);
   renderProfiles();
   showProfile(state.profiles[0].id);
@@ -354,7 +450,7 @@ function renderSlots(status) {
       const title = skill
         ? `${slotHint(slot.name)} — click to run ${skill}`
         : slotHint(slot.name);
-      return `<li data-skill="${skill || ""}" title="${esc(title)}"><span>${slot.name}</span><span class="${slot.state}">${slot.state}</span></li>`;
+      return `<li data-skill="${skill || ""}" title="${esc(title)}"><span>${esc(slot.name)}</span><span class="state ${esc(slot.state)}">${esc(slot.state)}</span></li>`;
     })
     .join("");
   // The board is the map of what is missing, so let it fill itself.
@@ -548,6 +644,7 @@ async function runSkill(skill, answers, chapter) {
     return;
   }
   $("job-card").classList.remove("hidden");
+  syncBack();
   $("job-title").textContent = skill;
   setJobState("running");
   $("btn-apply-job").classList.add("hidden");
@@ -573,6 +670,7 @@ async function openJob(id) {
   const detail = await invoke("get_job", { project: state.project, id });
   state.jobId = id;
   $("job-card").classList.remove("hidden");
+  syncBack();
   $("job-title").textContent = detail.job.skill;
   setJobState(detail.job.status);
   $("job-preview").classList.remove("hidden");
@@ -679,6 +777,8 @@ async function openPalette() {
   await loadSkills();
   state.paletteIndex = 0;
   $("palette").classList.remove("hidden");
+  showScrim(closePalette);
+  syncBack();
   $("palette-input").value = "";
   renderPalette("");
   $("palette-input").focus();
@@ -686,6 +786,8 @@ async function openPalette() {
 
 function closePalette() {
   $("palette").classList.add("hidden");
+  hideScrim();
+  syncBack();
 }
 
 function runPaletteSelection() {
@@ -731,6 +833,20 @@ function bindPalette() {
   };
 }
 
+/**
+ * Touch niceties: a tap dismisses the toast, and a focused field is scrolled
+ * clear of the on-screen keyboard once the view has shrunk for it.
+ */
+function bindTouch() {
+  $("toast").onclick = () => $("toast").classList.add("hidden");
+  document.addEventListener("focusin", (ev) => {
+    const el = ev.target;
+    if (!el.matches?.("input:not([type=checkbox]), textarea, select")) return;
+    if (!el.closest("main.view")) return;
+    setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 300);
+  });
+}
+
 /** Ctrl+1..5 switch views, in the order they appear in the nav. */
 const VIEW_KEYS = ["home", "book", "write", "edit", "settings"];
 
@@ -773,11 +889,15 @@ function bindShortcuts() {
       return;
     }
     if (ev.key === "Escape") {
-      if (!$("palette").classList.contains("hidden")) {
+      if (isOpen("confirm")) {
+        $("confirm-cancel").click();
+        return;
+      }
+      if (isOpen("palette")) {
         closePalette();
         return;
       }
-      if (!$("job-card").classList.contains("hidden")) $("job-card").classList.add("hidden");
+      if (isOpen("job-card")) closeJob();
     }
   });
 }
@@ -796,6 +916,8 @@ async function main() {
   placeBookCard();
   bindPalette();
   bindShortcuts();
+  bindBack();
+  bindTouch();
   $("btn-open").onclick = async () => {
     // Hand the chooser the open book (or the last one) so it does not land on
     // Recents, which is useless for a book kept deep in a home directory.
@@ -915,10 +1037,11 @@ async function main() {
       return;
     }
     toast("rejected");
-    $("job-card").classList.add("hidden");
+    closeJob();
     await renderJobs();
   };
-  $("btn-close-job").onclick = () => $("job-card").classList.add("hidden");
+  $("btn-close-job").onclick = closeJob;
+  $("btn-x-job").onclick = closeJob;
   $("btn-auth").onclick = async () => {
     const dto = await invoke("auth_login");
     $("auth-code").textContent = dto.user_code;
