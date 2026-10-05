@@ -167,13 +167,24 @@ async function openProject(path) {
     return;
   }
   state.project = found[0].path;
-  const title = found[0].title || found[0].path.split("/").pop();
-  $("title").textContent = title;
+  $("toast").classList.add("hidden"); // an error from an earlier attempt is stale now
   $("subtitle").textContent = "Status is read from disk every time";
   $("project-path").textContent = state.project;
   $("open-path").value = state.project;
   state.file = null;
   placeBookCard();
+  await showTitle(found[0]);
+  const settings = await invoke("get_settings");
+  settings.last_project = state.project;
+  await invoke("save_settings", { settings });
+  await refreshAll();
+}
+
+/** The book's working title, or the folder name until it has one. */
+async function showTitle(book) {
+  const title = book.title || book.path.split(/[\\/]/).pop();
+  if ($("title").textContent === title) return;
+  $("title").textContent = title;
   // Desktop: the taskbar should say which book is open. Best effort — the
   // capability may not be granted.
   try {
@@ -181,14 +192,17 @@ async function openProject(path) {
   } catch {
     /* title bar keeps the static name */
   }
-  const settings = await invoke("get_settings");
-  settings.last_project = state.project;
-  await invoke("save_settings", { settings });
-  await refreshAll();
 }
 
 async function refreshAll() {
   if (!state.project) return;
+  // An import or a genre run can give the book its title; read it again.
+  try {
+    const [book] = await invoke("discover_projects", { start: state.project });
+    if (book) await showTitle(book);
+  } catch {
+    /* keep the title already shown */
+  }
   const status = await invoke("get_status", { project: state.project, chapter: null, mode: "resume" });
   state.status = status;
   renderSlots(status);
@@ -212,9 +226,10 @@ async function refreshAll() {
 function renderBible() {
   const bible = state.status?.storybible || null;
   $("btn-bible-import").disabled = !bible;
+  $("btn-bible-convert").disabled = !bible;
   $("bible-state").textContent = bible
-    ? `${bible} — Import writes its documents into this book folder.`
-    : "No storybible.md here yet. Write drafts one from the Wiki; Import unpacks a bible into Wiki files.";
+    ? `${bible} — Import writes its documents into this book folder. If your bible is in your own format, Convert it first (the original is kept as storybible.source.md).`
+    : "No storybible.md here yet. Write drafts one from the Wiki, or put your own bible here as storybible.md and Convert it; Import unpacks a bible into Wiki files.";
 }
 
 /**
@@ -452,6 +467,7 @@ async function runSkill(skill, answers, chapter) {
   $("job-card").classList.remove("hidden");
   $("job-title").textContent = skill;
   setJobState("running");
+  $("btn-apply-job").classList.add("hidden");
   $("job-preview").classList.remove("hidden");
   $("job-preview").textContent = "";
   $("job-diff").classList.add("hidden");
@@ -479,7 +495,15 @@ async function openJob(id) {
   $("job-preview").classList.remove("hidden");
   $("job-diff").classList.add("hidden");
   $("job-preview").textContent = detail.preview || detail.job.error || "";
+  // A saved findings report can be applied to the chapter as its own run.
+  const appliable = REPORT_SKILLS.has(detail.job.skill) && detail.job.status === "saved";
+  $("btn-apply-job").classList.toggle("hidden", !appliable);
+  $("btn-apply-job").onclick = () =>
+    runSkill(`${detail.job.skill}:apply`, [], detail.job.chapter);
 }
+
+/** Editorial passes that write a report beside the chapter (see chunk.rs). */
+const REPORT_SKILLS = new Set(["fiction-line-editor", "fragment-hunter"]);
 
 /**
  * Save / Diff / Reject only mean something for a preview waiting on a decision.
@@ -489,6 +513,21 @@ function setJobState(status) {
   const pill = $("job-state");
   pill.textContent = status;
   pill.className = `pill ${status}`;
+  // Until the first word arrives, say how long it has been: reasoning models
+  // can think for minutes before writing, and a silent card looks frozen.
+  clearInterval(setJobState._timer);
+  $("job-wait").classList.add("hidden");
+  if (status === "running") {
+    const started = Date.now();
+    setJobState._timer = setInterval(() => {
+      const waiting = $("job-preview").textContent.length === 0;
+      $("job-wait").classList.toggle("hidden", !waiting);
+      if (!waiting) return;
+      const secs = Math.round((Date.now() - started) / 1000);
+      const time = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+      $("job-wait").textContent = `Waiting for the first words… ${time}. Reasoning models think before they write; the run stops by itself if the provider goes silent for 2 minutes.`;
+    }, 1000);
+  }
   const confirmable = status === "needs_confirm";
   for (const id of ["btn-save-job", "btn-diff-job", "btn-reject-job"]) {
     $(id).classList.toggle("hidden", !confirmable);
@@ -665,6 +704,9 @@ async function main() {
     toast("Tauri bridge missing — open this UI from the desktop app");
     return;
   }
+  if (navigator.userAgent.includes("Windows")) {
+    $("open-path").placeholder = "C:\\Users\\you\\Documents\\Books\\salt-ledger";
+  }
   document.querySelectorAll("nav.bottom button").forEach((btn) => {
     btn.addEventListener("click", () => showView(btn.dataset.view));
   });
@@ -693,6 +735,8 @@ async function main() {
     runSkill("storybible-import", [], state.status?.chapter || 1);
   $("btn-bible-write").onclick = () =>
     runSkill("fiction-storybible", [], state.status?.chapter || 1);
+  $("btn-bible-convert").onclick = () =>
+    runSkill("storybible-convert", [], state.status?.chapter || 1);
   $("btn-next").onclick = () => {
     if (state.status?.next_skill) runSkill(state.status.next_skill, [], state.status.chapter);
   };

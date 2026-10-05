@@ -34,8 +34,19 @@ pub fn validate_preview(skill: &str, text: &str) -> Result<(), Error> {
                 ));
             }
         }
-        "storybible-import" => {
+        "storybible-import" | "storybible-convert" => {
             crate::bible::parse_storybible(trimmed)?;
+        }
+        "fiction-style" => {
+            let docs = crate::bible::parse_storybible(trimmed)?;
+            if !docs
+                .iter()
+                .any(|doc| doc.path == "Wiki/Style/style_guide.md")
+            {
+                return Err(Error::InvalidPreview(
+                    "the answer has no style guide".into(),
+                ));
+            }
         }
         _ => {}
     }

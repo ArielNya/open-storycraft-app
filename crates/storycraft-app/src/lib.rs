@@ -35,6 +35,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(android::plugin())
         .manage(AppState {
             pending_device: std::sync::Mutex::new(None),
         })

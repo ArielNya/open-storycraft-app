@@ -11,6 +11,7 @@ fi
 mkdir -p "$gen"
 cp "$root/android-overlay/JobForegroundService.kt" "$gen/"
 cp "$root/android-overlay/CustomTabs.kt" "$gen/"
+cp "$root/android-overlay/StorycraftPlugin.kt" "$gen/"
 echo "copied Kotlin helpers to $gen"
 echo "merge AndroidManifest.permissions.xml into app/src/main/AndroidManifest.xml"
 echo "add androidx.browser to app/build.gradle.kts for Custom Tabs"

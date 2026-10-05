@@ -49,7 +49,7 @@ Search for `**/Wiki/` and `**/Wiki/Story/synopsis.md`.
 
 - One Wiki found — that is the project root (the folder that contains `Wiki/`).
 - Several Wikis — list working titles from genre.md or synopsis.md and ask.
-- A `**/storybible.md` and no Wiki — that folder is a book waiting to be unpacked. Run `storybible-import` before anything else; it needs no model.
+- A `**/storybible.md` and no Wiki — that folder is a book waiting to be unpacked. Run `storybible-import` before anything else; it needs no model. If the bible is in the author's own format (import finds no documents), run `storybible-convert` first.
 - None, and mode is new-project — create `<working-title-slug>/Wiki/{Style,Story,Outline,Characters,Locations,Organizations,Systems,Events,Psych}/`. If no title exists yet, use `new-story` and rename after genre.
 - None, and mode is not new-project or spark — ask whether to start a new project or point at an existing folder.
 
@@ -77,7 +77,7 @@ Load and run fiction-story-sparks. Do not create Wiki files. After the spread, a
 
 Run this spine, stopping after each skill for "What should I change?"
 
-If the user already has a story bible, or wants the whole plan as one file first, run the storybible pair before the spine: `fiction-storybible` writes `storybible.md`, `storybible-import` writes the Wiki files it carries, and the spine resumes at the first slot still missing.
+If the user already has a story bible, or wants the whole plan as one file first, run the storybible pair before the spine: `fiction-storybible` writes `storybible.md` (or `storybible-convert` rewrites a bible the author already has, in any format), `storybible-import` writes the Wiki files it carries, and the spine resumes at the first slot still missing.
 
 1. fiction-genre → Wiki/Style/genre.md
 2. fiction-audience → Wiki/Style/audience.md

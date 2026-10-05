@@ -107,6 +107,33 @@ async fn retries_429_then_succeeds() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn retries_a_transient_500_then_succeeds() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("Internal error encountered."))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"),
+        )
+        .mount(&server)
+        .await;
+
+    let client = OpenAiClient::new(cfg(&server, ApiStyle::ChatCompletions)).unwrap();
+    let text = client
+        .complete("s", "u", &CancellationToken::new(), |_| Ok(()))
+        .await
+        .unwrap();
+    assert_eq!(text, "ok");
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn maps_403_to_tier_denied() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -217,4 +244,69 @@ async fn model_listing_reports_bad_credentials_and_empty_bodies() {
         client.list_models().await.unwrap_err(),
         storycraft_llm::Error::NoModels
     ));
+}
+
+/// A slow model that keeps streaming must not be cut off: the timeout is for
+/// silence, not for the whole generation. Raw TCP because wiremock can only
+/// delay a whole response, not pace its chunks.
+#[tokio::test(flavor = "current_thread")]
+async fn a_stream_longer_than_the_timeout_still_completes() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        // Read the whole request so closing the socket does not reset it.
+        let mut request = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = socket.read(&mut buf).await.unwrap();
+            request.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&request);
+            if let Some(end) = text.find("\r\n\r\n") {
+                let length = text[..end]
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                if request.len() >= end + 4 + length {
+                    break;
+                }
+            }
+        }
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        for word in ["one ", "two ", "three ", "four ", "five"] {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            let event =
+                format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{word}\"}}}}]}}\n\n");
+            socket.write_all(event.as_bytes()).await.unwrap();
+        }
+        socket.write_all(b"data: [DONE]\n\n").await.unwrap();
+    });
+
+    let config = ProviderConfig {
+        name: "openai-compat".into(),
+        base_url: format!("http://{addr}/v1"),
+        api_key: Some(Secret::new("sk-test")),
+        api_style: ApiStyle::ChatCompletions,
+        model: "slow-model".into(),
+        // 2s of streaming against a 1s timeout.
+        timeout: Duration::from_secs(1),
+        stream: true,
+    };
+    let client = OpenAiClient::new(config).unwrap();
+    let text = client
+        .complete("sys", "user", &CancellationToken::new(), |_| Ok(()))
+        .await
+        .unwrap();
+    assert_eq!(text, "one two three four five");
 }

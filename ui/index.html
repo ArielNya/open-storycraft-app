@@ -49,6 +49,7 @@
           <h2>Storybible</h2>
           <div class="row actions">
             <button id="btn-bible-write" type="button">Write</button>
+            <button id="btn-bible-convert" type="button" title="Rewrite a bible in your own format so Import can read it">Convert</button>
             <button id="btn-bible-import" class="primary" type="button">Import</button>
           </div>
         </div>
@@ -102,7 +103,7 @@
         <label>API key
           <input id="set-key" type="password" autocomplete="off" placeholder="paste to set or replace" />
         </label>
-        <p id="key-state" class="muted path"></p>
+        <p id="key-state" class="muted path prose"></p>
         <div class="row">
           <button id="btn-key-clear" type="button">Forget stored key</button>
         </div>
@@ -192,12 +193,14 @@
         <strong id="job-title">Job</strong>
         <span id="job-state" class="pill"></span>
       </header>
+      <p id="job-wait" class="muted hidden"></p>
       <pre id="job-preview" class="md"></pre>
       <pre id="job-diff" class="md diff hidden"></pre>
       <div class="row">
         <button id="btn-save-job" class="primary" type="button" title="Write the preview into the Wiki (Ctrl+S)">Save to Wiki</button>
         <button id="btn-diff-job" type="button">Diff</button>
         <button id="btn-reject-job" type="button">Reject</button>
+        <button id="btn-apply-job" class="primary hidden" type="button" title="Rewrite the chapter with this report's fixes; you confirm the result">Apply fixes</button>
         <button id="btn-close-job" type="button" title="Close (Esc)">Close</button>
       </div>
     </section>

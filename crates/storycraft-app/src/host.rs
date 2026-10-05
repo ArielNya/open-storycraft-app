@@ -2,12 +2,15 @@
 
 use std::path::{Path, PathBuf};
 
-use storycraft_auth::{DeviceAuth, OAuthConfig, TokenStore};
+use storycraft_auth::{DeviceAuth, OAuthConfig};
 use storycraft_core::{
     CHUNK_LINES, Catalog, Job, JobStatus, JobStore, Mode, ModelRouter, NewJob, ProjectRoot,
-    apply_chunk_edit, build_chunk_prompt, discover, ensure_requires, find_chapter_prose,
-    infer_chapter, is_chunked_skill, is_overlay, merge_chunks, overlay_allowed, prepare_skill,
-    resolve_output_path, split_lines, validate_preview,
+    applied_report_skill, apply_chunk_edit, assemble_converted, base_skill,
+    build_apply_chunk_prompt, build_chunk_prompt, build_report_chunk_prompt, build_section_prompt,
+    chunk_edit_refused, discover, ensure_requires, find_chapter_prose, finish_model_output,
+    infer_chapter, is_chunked_skill, is_overlay, is_report_skill, merge_chunks,
+    merge_window_reports, overlay_allowed, prepare_skill, resolve_output_path, split_lines,
+    split_source, validate_preview,
 };
 use storycraft_llm::{ApiStyle, CancellationToken, OpenAiClient, ProviderConfig, Secret};
 use storycraft_tools::{GenerateOpts, is_local_tool};
@@ -57,8 +60,9 @@ pub(crate) async fn execute_run(
     commit: bool,
 ) -> Result<Job, AppError> {
     let catalog = load_catalog(app, settings.skills_dir.as_deref())?;
+    // `fragment-hunter:apply` runs the `fragment-hunter` skill folder.
     let manifest = catalog
-        .get(skill)
+        .get(base_skill(skill))
         .ok_or_else(|| storycraft_core::Error::SkillNotFound(skill.to_owned()))?;
     if is_overlay(skill) && !overlay_allowed(skill, &settings.enabled_overlays) {
         return Err(storycraft_core::Error::OverlayDisabled(skill.to_owned()).into());
@@ -70,10 +74,15 @@ pub(crate) async fn execute_run(
         (None, None) => 1,
     };
     ensure_requires(project.as_ref(), &manifest.requires, chapter)?;
-    let output_path = resolve_output_path(project.as_ref(), skill, chapter);
     let mode = Mode::for_skill(skill);
     let root = jobs_root(project_path)?;
     let store = JobStore::open(&root)?;
+    // The converter rewrites the bible where it was found: beside the book, in
+    // its Wiki, or one folder down.
+    let output_path = match skill {
+        "storybible-convert" => storycraft_core::find_storybible_rel(&root),
+        _ => resolve_output_path(project.as_ref(), skill, chapter),
+    };
 
     if is_local_tool(skill) {
         return run_local(
@@ -105,6 +114,17 @@ pub(crate) async fn execute_run(
         output_path.as_deref(),
         budget,
     )?;
+    // Read what a windowed run needs before a job exists, so a missing chapter
+    // or report fails cleanly instead of leaving a job stuck in `running`.
+    let chapter_text = if is_report_skill(skill) {
+        Some(read_chapter(project.as_ref(), chapter)?)
+    } else {
+        None
+    };
+    let saved_report = match applied_report_skill(skill) {
+        Some(base) => Some(read_saved_report(project.as_ref(), base, chapter)?),
+        None => None,
+    };
     let mut job = store.create(NewJob {
         skill: skill.to_owned(),
         mode,
@@ -122,8 +142,21 @@ pub(crate) async fn execute_run(
     let stored_key = crate::secrets::SecretStore::open(app)?.get()?;
     let client = build_client(app, settings, &job.model, stored_key).await?;
     let cancel = CancellationToken::new();
-    let text = if is_chunked_skill(skill) {
-        run_chunked(app, &store, &job, &client, &prompt, &cancel).await
+    let text = if let Some(chapter_text) = &chapter_text {
+        run_report(app, &store, &job, &client, &prompt, chapter_text, &cancel).await
+    } else if is_chunked_skill(skill) {
+        run_chunked(
+            app,
+            &store,
+            &job,
+            &client,
+            &prompt,
+            saved_report.as_deref(),
+            &cancel,
+        )
+        .await
+    } else if skill == "storybible-convert" {
+        run_convert(app, &store, &job, &client, &prompt, &cancel).await
     } else {
         let preview_id = job.id.clone();
         let handle = app.clone();
@@ -160,6 +193,15 @@ fn finish_preview(
     text: &str,
     commit: bool,
 ) -> Result<Job, AppError> {
+    let text = &match finish_model_output(&job.skill, text) {
+        Ok(text) => text,
+        Err(err) => {
+            // Keep the raw answer on disk so the user can see what came back.
+            store.write_preview(&job.id, text)?;
+            store.fail(job, err.to_string())?;
+            return Err(err.into());
+        }
+    };
     store.write_preview(&job.id, text)?;
     if let Err(err) = validate_preview(&job.skill, text) {
         store.fail(job, err.to_string())?;
@@ -189,6 +231,7 @@ async fn run_chunked(
     job: &Job,
     client: &OpenAiClient,
     prompt: &storycraft_core::Prompt,
+    report: Option<&str>,
     cancel: &CancellationToken,
 ) -> Result<String, AppError> {
     let original = store.read_original(&job.id)?;
@@ -201,8 +244,12 @@ async fn run_chunked(
     let chunks = split_lines(&original, CHUNK_LINES);
     let total_lines = original.lines().count();
     let mut merged = Vec::with_capacity(chunks.len());
+    let mut refused = 0usize;
     for chunk in &chunks {
-        let piece = build_chunk_prompt(prompt, chunk, total_lines);
+        let piece = match report {
+            Some(report) => build_apply_chunk_prompt(prompt, report, chunk, total_lines),
+            None => build_chunk_prompt(prompt, chunk, total_lines),
+        };
         let handle = app.clone();
         let preview_id = job.id.clone();
         let edited = client
@@ -214,12 +261,142 @@ async fn run_chunked(
                 Ok(())
             })
             .await?;
-        merged.push(apply_chunk_edit(&chunk.text, &edited));
+        // Apply runs answer with numbered lines; anything else is window text.
+        let numbered = report
+            .is_some()
+            .then(|| storycraft_core::apply_numbered_edits(chunk, &edited))
+            .flatten();
+        if let Some(window) = numbered {
+            merged.push(window);
+        } else {
+            if chunk_edit_refused(&chunk.text, &edited) {
+                refused = refused.saturating_add(1);
+            }
+            merged.push(apply_chunk_edit(&chunk.text, &edited));
+        }
         let so_far = merge_chunks(&merged);
         store.write_preview(&job.id, &so_far)?;
     }
+    if refused == chunks.len() {
+        return Err(AppError::msg(
+            "the model answered with a report instead of the edited chapter, so nothing was \
+             changed; try again or pick another model",
+        ));
+    }
+    if refused > 0 {
+        tracing::warn!(
+            refused,
+            windows = chunks.len(),
+            "kept the original text where the model answered with something other than an edit"
+        );
+    }
     Ok(merge_chunks(&merged))
 }
+
+/// Run a report skill window by window and merge the findings into one report.
+/// The chapter is only read here; applying the report is a separate run.
+async fn run_report(
+    app: &AppHandle,
+    store: &JobStore,
+    job: &Job,
+    client: &OpenAiClient,
+    prompt: &storycraft_core::Prompt,
+    chapter_text: &str,
+    cancel: &CancellationToken,
+) -> Result<String, AppError> {
+    let chunks = split_lines(chapter_text, CHUNK_LINES);
+    let total_lines = chapter_text.lines().count();
+    let mut windows = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        let piece = build_report_chunk_prompt(prompt, &chunk, total_lines);
+        let handle = app.clone();
+        let preview_id = job.id.clone();
+        let answer = client
+            .complete(&piece.system, &piece.user, cancel, |delta| {
+                let _ = handle.emit(
+                    "job-delta",
+                    serde_json::json!({ "id": preview_id, "chunk": delta }),
+                );
+                Ok(())
+            })
+            .await?;
+        windows.push((chunk, answer));
+        store.write_preview(&job.id, &report_text(job, &windows))?;
+    }
+    Ok(report_text(job, &windows))
+}
+
+fn report_text(job: &Job, windows: &[(storycraft_core::LineChunk, String)]) -> String {
+    merge_window_reports(&format!("{} — chapter {}", job.skill, job.chapter), windows)
+}
+
+/// The chapter prose a report skill reads.
+fn read_chapter(project: Option<&ProjectRoot>, chapter: u32) -> Result<String, AppError> {
+    let path = project
+        .and_then(|project| find_chapter_prose(project, chapter))
+        .ok_or_else(|| {
+            AppError::msg(format!(
+                "no chapter prose for chapter {chapter}; draft it before running an editorial pass"
+            ))
+        })?;
+    std::fs::read_to_string(&path).map_err(|err| AppError::io(&path, &err))
+}
+
+/// The report `<skill>:apply` applies: the one `<skill>` saved for this chapter.
+fn read_saved_report(
+    project: Option<&ProjectRoot>,
+    skill: &str,
+    chapter: u32,
+) -> Result<String, AppError> {
+    let missing = || {
+        AppError::msg(format!(
+            "no saved {skill} report for chapter {chapter}; run {skill} and save its report first"
+        ))
+    };
+    let project = project.ok_or_else(missing)?;
+    let rel = resolve_output_path(Some(project), skill, chapter).ok_or_else(missing)?;
+    std::fs::read_to_string(project.path().join(rel)).map_err(|_| missing())
+}
+
+/// Convert a free-form `storybible.md` section by section, so a bible of any
+/// size is read whole and no answer has to carry the entire book.
+async fn run_convert(
+    app: &AppHandle,
+    store: &JobStore,
+    job: &Job,
+    client: &OpenAiClient,
+    prompt: &storycraft_core::Prompt,
+    cancel: &CancellationToken,
+) -> Result<String, AppError> {
+    let source = store.read_original(&job.id)?;
+    if source.trim().is_empty() {
+        return Err(AppError::msg(
+            "no storybible.md in this folder to convert; put your bible there first",
+        ));
+    }
+    let sections = split_source(&source, CONVERT_SECTION_CHARS);
+    let mut answers = Vec::with_capacity(sections.len());
+    for (i, section) in sections.iter().enumerate() {
+        let piece = build_section_prompt(prompt, i, sections.len(), section);
+        let handle = app.clone();
+        let preview_id = job.id.clone();
+        let answer = client
+            .complete(&piece.system, &piece.user, cancel, |delta| {
+                let _ = handle.emit(
+                    "job-delta",
+                    serde_json::json!({ "id": preview_id, "chunk": delta }),
+                );
+                Ok(())
+            })
+            .await?;
+        answers.push(answer);
+    }
+    assemble_converted(&answers).map_err(AppError::from)
+}
+
+/// Source characters per conversion call. Small enough that the converted
+/// documents fit in one answer from a modest model.
+const CONVERT_SECTION_CHARS: usize = 12_000;
 
 #[allow(clippy::too_many_arguments)]
 fn run_local(
@@ -330,9 +507,7 @@ pub(crate) async fn build_client(
 }
 
 async fn oauth_access_token(app: &AppHandle) -> Result<String, AppError> {
-    let store = TokenStore::new(paths::oauth_file(app)?);
-    let mut tokens = store
-        .load()?
+    let mut tokens = crate::secrets::load_tokens(app)?
         .ok_or_else(|| AppError::msg("not signed in; use Settings → Sign in with xAI"))?;
     if tokens.needs_refresh() {
         let refresh = tokens
@@ -341,7 +516,7 @@ async fn oauth_access_token(app: &AppHandle) -> Result<String, AppError> {
             .ok_or_else(|| AppError::msg("OAuth token expired; sign in again"))?;
         let auth = DeviceAuth::new(OAuthConfig::default())?;
         tokens = auth.refresh(refresh).await?;
-        store.save(&tokens)?;
+        crate::secrets::save_tokens(app, &tokens)?;
     }
     Ok(tokens.access_token)
 }

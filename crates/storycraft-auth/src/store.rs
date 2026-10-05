@@ -172,13 +172,15 @@ impl TokenStore {
     }
 }
 
-/// `STORYCRAFT_AUTH_FILE`, else `~/.config/open-storycraft/oauth.json`.
+/// `STORYCRAFT_AUTH_FILE`, else `%APPDATA%\open-storycraft\oauth.json` on
+/// Windows and `~/.config/open-storycraft/oauth.json` elsewhere.
 #[must_use]
 pub fn default_token_path() -> PathBuf {
     if let Some(custom) = std::env::var_os("STORYCRAFT_AUTH_FILE") {
         return PathBuf::from(custom);
     }
     let base = std::env::var_os("XDG_CONFIG_HOME")
+        .or_else(|| cfg!(windows).then(|| std::env::var_os("APPDATA")).flatten())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
         .unwrap_or_else(|| PathBuf::from("."));

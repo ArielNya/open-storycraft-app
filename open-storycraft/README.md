@@ -98,6 +98,8 @@ open-storycraft/
 │   └── SKILL.md
 ├── skill-builder/
 │   └── SKILL.md
+├── storybible-convert/
+│   └── SKILL.md
 ├── storybible-import/
 │   └── SKILL.md
 ├── town-generator/
@@ -152,6 +154,7 @@ Companion files live beside each `SKILL.md` in `references/`, `assets/`, `script
 | `nominalization-hunt` | 1 | Nominalization hunter |
 | `pangram` | 1 | Pangram-oriented AI-detection review |
 | `skill-builder` | 2 | Build new portable skills |
+| `storybible-convert` | 1 | Rewrite a story bible in any format as an importable `storybible.md` |
 | `storybible-import` | 1 | Unpack `storybible.md` into the book folder (local, no model) |
 | `town-generator` | 16 | Town name / place generator |
 

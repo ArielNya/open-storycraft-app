@@ -271,9 +271,16 @@ fn extract_linked_files(body: &str) -> Vec<String> {
         let target = rest[..end].split_whitespace().next().unwrap_or("");
         let target = target.trim_matches('"').split('#').next().unwrap_or(target);
         rest = &rest[end + 1..];
-        if (target.starts_with("references/")
-            || target.starts_with("assets/")
-            || target.starts_with("data/"))
+        // A sibling skill's file (`../fiction-storybible/references/x.md`) is
+        // fine: one level up and back into the pack, never further.
+        let local = target
+            .strip_prefix("../")
+            .and_then(|sibling| sibling.split_once('/'))
+            .map_or(target, |(_, inner)| inner);
+        if (local.starts_with("references/")
+            || local.starts_with("assets/")
+            || local.starts_with("data/"))
+            && !local.contains("..")
             && !files.iter().any(|existing| existing == target)
         {
             files.push(target.to_owned());
@@ -302,6 +309,16 @@ mod tests {
         assert_eq!(
             files,
             vec!["references/genre-fantasy.md", "assets/output-template.json"]
+        );
+    }
+
+    #[test]
+    fn a_sibling_skills_reference_is_linked_but_nothing_further_up() {
+        let body = "[f](../fiction-storybible/references/storybible-format.md) \
+                    [up](../../secrets/references/x.md) [sneak](../a/references/../../x.md)";
+        assert_eq!(
+            extract_linked_files(body),
+            vec!["../fiction-storybible/references/storybible-format.md"]
         );
     }
 

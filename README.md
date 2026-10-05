@@ -18,11 +18,18 @@ The long-form design notes are in [OPEN_STORYCRAFT_APP_PLAN.md](OPEN_STORYCRAFT_
 - **Model picker** — the settings screen asks your provider what it serves and offers it in a dropdown. See [Configuring a provider](#configuring-a-provider).
 - **API key in the OS keyring** — never in the settings file, never sent back to the page. See [Where the key lives](#where-the-key-lives).
 - **Desktop shell** — a sidebar that replaces the bottom bar past 720px, cards that use the width (status and jobs side by side, file list beside the preview), a job panel in the corner instead of a sheet across the bottom, hover/focus states, and keyboard shortcuts. Under 720px it is the phone layout: one column, nav along the bottom.
-- **Sideload builds** — desktop binary, `.deb`, and a signed Android APK.
+- **Sideload builds** — Windows installer (NSIS `.exe`), desktop binary, `.deb`, and a signed Android APK.
 
-Not here yet: Android Keystore-backed encryption for the key (Android uses app-private storage), a keyring entry for the OAuth tokens, iOS, and the world-pack UI (the world skills run, the board slot is there, but there is no world browser).
+Not here yet: Android Keystore-backed encryption for the key and tokens (Android uses app-private storage), iOS, and the world-pack UI (the world skills run, the board slot is there, but there is no world browser).
 
 ## Requirements
+
+**Windows desktop**
+
+- Rust (MSVC toolchain, pinned in `rust-toolchain.toml`) and the *Desktop development with C++* workload from Visual Studio Build Tools.
+- WebView2 — already part of Windows 11.
+- The tauri CLI for release builds: `cargo install tauri-cli --version "^2" --locked`.
+- Smart App Control blocks `rustc.exe` and every freshly built test binary (`os error 4551`). Turn it off in *Windows Security → App & browser control* to build here.
 
 **Linux desktop**
 
@@ -56,7 +63,8 @@ cargo run -p storycraft-app
 cd crates/storycraft-app && cargo tauri build --no-bundle
 
 # desktop, installable package
-cd crates/storycraft-app && cargo tauri build --bundles deb
+cd crates/storycraft-app && cargo tauri build --bundles nsis   # Windows -> target/release/bundle/nsis/*.exe
+cd crates/storycraft-app && cargo tauri build --bundles deb    # Linux
 ```
 
 Build releases through the tauri CLI. It adds the `tauri/custom-protocol` feature, which is what a release build is meant to have — the equivalent plain cargo command is `cargo build --release -p storycraft-app --features tauri/custom-protocol`.
@@ -116,7 +124,7 @@ Not in the settings file. The settings hold everything else — URL, provider, m
 | Linux | Secret Service (gnome-keyring, KWallet) |
 | macOS | Keychain |
 | Windows | Credential Manager |
-| Desktop with no keyring reachable (container, headless, minimal session) | `~/.config/dev.openstorycraft.app/api-key`, mode `0600`, and the settings screen says so instead of pretending |
+| Desktop with no keyring reachable (container, headless, minimal session) | `api-key` in the app config directory (`%APPDATA%\dev.openstorycraft.app\` on Windows, `~/.config/dev.openstorycraft.app/` mode `0600` on Linux), and the settings screen says so instead of pretending |
 | Android | App-private storage inside the OS app sandbox — this build has no Android keyring backend |
 
 Details:
@@ -127,7 +135,7 @@ Details:
 - Upgrading from an older build: if `app.json` still has a plaintext `api_key`, the first launch lifts it into the secret store and rewrites the settings without it. A key already in the store wins, so a stale file cannot clobber a newer key.
 - `STORYCRAFT_SECRET_BACKEND=keyring|file` forces a backend. Useful on a headless server (`file`) or to prove the keyring path is really being used (`keyring`).
 - The value prints as `[redacted]` in every `Debug`/`Display` path and wipes its bytes when dropped.
-- Not covered by this yet: the xAI OAuth tokens in `~/.config/dev.openstorycraft.app/oauth.json` are still a `0600` file rather than a keyring entry.
+- The xAI OAuth tokens go to the same store (account `oauth-tokens`). Windows Credential Manager caps a secret at 2560 bytes; a token set bigger than that falls back to `oauth.json` in the config directory, with a warning in the log. Tokens an older build left in `oauth.json` are still read, and move into the keyring on the next refresh.
 
 Other hardening on the same pass: the webview runs under a CSP that allows only same-origin scripts and styles (inline styles excepted, since the UI sets a few) and only IPC connections, with `object-src`, `base-uri`, `form-action` and `frame-ancestors` denied; plugin permissions are limited to the dialog, opener and notification plugins the UI actually uses; every path the webview hands back is validated before it is joined or written.
 
@@ -227,6 +235,23 @@ The shell is responsive rather than fixed: past 720px the nav becomes a left sid
 
 ## Building the APK
 
+On Windows, install Android Studio and, from its SDK Manager, an SDK platform, *NDK (Side by side)*, and *Android SDK Command-line Tools*. Android Studio bundles a JDK, so there is nothing else to install:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+$env:NDK_HOME = (Get-ChildItem "$env:ANDROID_HOME\ndk" | Select-Object -Last 1).FullName
+rustup target add aarch64-linux-android x86_64-linux-android
+
+cd crates\storycraft-app
+cargo tauri android build --apk --target aarch64
+& "$env:ANDROID_HOME\platform-tools\adb.exe" install -r gen\android\app\build\outputs\apk\universal\release\app-universal-release.apk
+```
+
+After a fresh `cargo tauri android init`, run `android-overlay\apply.ps1` to copy the Kotlin helpers back in.
+
+On Linux:
+
 ```bash
 export JAVA_HOME=~/path/to/jdk17
 export ANDROID_HOME=~/Android/Sdk
@@ -251,7 +276,6 @@ Keep the keystore and its password: Android refuses to install an update signed 
 
 ## Known limitations
 
-- The xAI OAuth token file is `0600` on disk, not a keyring entry (the API key is in the keyring).
-- The bundle identifier `dev.openstorycraft.app` ends in `.app`; tauri warns about it. Harmless on Android and Linux, but changing it later changes the Android package name and the desktop config directory.
+- The bundle identifier `dev.openstorycraft.app` ends in `.app`; tauri warns about it. Harmless on Android, Windows and Linux, but changing it later changes the Android package name and the desktop config directory.
 - The APK ships `arm64-v8a` only unless you build more ABIs.
 - No CI configuration is checked in; the commands above are the gates.

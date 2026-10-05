@@ -411,6 +411,319 @@ fn strip_routing_keys(frontmatter: &[&str]) -> String {
         .to_owned()
 }
 
+/// [`find_storybible`] as a path relative to `root`, with `/` separators — the
+/// form a job's `output_path` takes.
+#[must_use]
+pub fn find_storybible_rel(root: &Path) -> Option<String> {
+    let found = find_storybible(root)?;
+    let rel = found.strip_prefix(root).ok()?;
+    Some(rel.to_string_lossy().replace('\\', "/"))
+}
+
+/// Whether `text` is already a storybible the importer can unpack.
+#[must_use]
+pub fn is_importable(text: &str) -> bool {
+    parse_storybible(text).is_ok()
+}
+
+/// Cut a free-form source into pieces of at most `max_chars`, at headings
+/// where possible, then at blank lines, and only as a last resort mid-text.
+///
+/// Every byte of `text` lands in exactly one piece, in order, so converting
+/// the pieces one at a time loses nothing.
+#[must_use]
+pub fn split_source(text: &str, max_chars: usize) -> Vec<String> {
+    let max_chars = max_chars.max(1);
+    // Sections: a heading line starts a new one.
+    let mut sections: Vec<String> = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if line.trim_start().starts_with('#') || sections.is_empty() {
+            sections.push(String::new());
+        }
+        if let Some(last) = sections.last_mut() {
+            last.push_str(line);
+        }
+    }
+    let mut pieces: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for section in sections {
+        for part in fit(&section, max_chars) {
+            if !current.is_empty() && current.len() + part.len() > max_chars {
+                pieces.push(std::mem::take(&mut current));
+            }
+            current.push_str(&part);
+        }
+    }
+    if !current.trim().is_empty() {
+        pieces.push(current);
+    }
+    pieces
+}
+
+/// One section as parts no longer than `max_chars`: whole, else by paragraph,
+/// else hard cuts on character boundaries.
+fn fit(section: &str, max_chars: usize) -> Vec<String> {
+    if section.len() <= max_chars {
+        return vec![section.to_owned()];
+    }
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for para in section.split_inclusive("\n\n") {
+        if !current.is_empty() && current.len() + para.len() > max_chars {
+            parts.push(std::mem::take(&mut current));
+        }
+        let mut rest = para;
+        while rest.len() > max_chars {
+            let mut cut = max_chars;
+            while !rest.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            parts.push(rest[..cut].to_owned());
+            rest = &rest[cut..];
+        }
+        current.push_str(rest);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
+/// Fold documents that land on the same file into one, keeping first-seen
+/// order.
+///
+/// A converted bible often describes one character or place in several
+/// sections. The importer writes one file per document, so without this the
+/// last mention would silently replace the others. Frontmatter keys from the
+/// first document win; later ones only add keys it lacked. Bodies are joined,
+/// skipping exact repeats.
+#[must_use]
+pub fn merge_documents(docs: Vec<BibleDoc>) -> Vec<BibleDoc> {
+    let mut merged: Vec<BibleDoc> = Vec::new();
+    for doc in docs {
+        let Some(existing) = merged.iter_mut().find(|m| m.path == doc.path) else {
+            merged.push(doc);
+            continue;
+        };
+        let known: Vec<String> = frontmatter_entries(&existing.frontmatter)
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        for (key, entry) in frontmatter_entries(&doc.frontmatter) {
+            if !known.contains(&key) {
+                if !existing.frontmatter.is_empty() {
+                    existing.frontmatter.push('\n');
+                }
+                existing.frontmatter.push_str(&entry);
+            }
+        }
+        let body = doc.body.trim();
+        if !body.is_empty() && !existing.body.contains(body) {
+            if !existing.body.is_empty() {
+                existing.body.push_str("\n\n");
+            }
+            existing.body.push_str(body);
+        }
+    }
+    merged
+}
+
+/// Frontmatter as `(key, entry)` pairs, where an entry is the `key:` line plus
+/// the indented or `- ` list lines that belong to it.
+fn frontmatter_entries(frontmatter: &str) -> Vec<(String, String)> {
+    let mut entries: Vec<(String, String)> = Vec::new();
+    for line in frontmatter.lines() {
+        let continues = line.starts_with(' ') || line.starts_with('\t') || line.starts_with("- ");
+        match entries.last_mut() {
+            Some((_, entry)) if continues => {
+                entry.push('\n');
+                entry.push_str(line);
+            }
+            _ => {
+                let key = line.split_once(':').map_or(line, |(k, _)| k).trim();
+                entries.push((key.to_owned(), line.to_owned()));
+            }
+        }
+    }
+    entries
+}
+
+/// The documents of a storybible as one importable text, with no header.
+#[must_use]
+pub fn documents_text(docs: &[BibleDoc]) -> String {
+    let mut out = String::new();
+    for doc in docs {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&doc.document());
+    }
+    out
+}
+
+/// Join the per-section answers of a bible conversion into one importable
+/// storybible, merging documents that land on the same file.
+///
+/// A section answered with `NO DOCUMENTS` (or nothing) is skipped on purpose.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidStoryBible`] naming the first section whose answer
+/// is not storybible documents — dropping it would silently lose canon — or
+/// when no section produced any document.
+pub fn assemble_converted(answers: &[String]) -> Result<String, Error> {
+    let mut docs = Vec::new();
+    for (i, answer) in answers.iter().enumerate() {
+        let text = crate::chunk::unwrap_model_output(answer);
+        let text = text.trim();
+        if text.is_empty() || text == "NO DOCUMENTS" {
+            continue;
+        }
+        let section = parse_storybible(text).map_err(|err| {
+            Error::InvalidStoryBible(format!(
+                "section {} of {} did not convert: {err}",
+                i.saturating_add(1),
+                answers.len()
+            ))
+        })?;
+        docs.extend(section);
+    }
+    if docs.is_empty() {
+        return Err(Error::InvalidStoryBible(
+            "the conversion produced no documents; nothing in the source mapped to the book".into(),
+        ));
+    }
+    let docs = merge_documents(docs);
+    let mut out = String::from("# Storybible\n\nConverted by storybible-convert. Files:\n\n");
+    for doc in &docs {
+        let _ = writeln!(out, "- {}", doc.path);
+    }
+    out.push('\n');
+    out.push_str(&documents_text(&docs));
+    Ok(out)
+}
+
+/// Route a model answer for a skill that writes several files.
+///
+/// The prompt asks for storybible documents (`path:` in each frontmatter), and
+/// when the answer has them they are used as given, restricted to `paths`.
+/// Models also answer with one fenced block per file, or with plain files in a
+/// row; those are mapped onto `paths` in order. Fewer files than `paths` is
+/// accepted — the board shows what is still missing — more is not.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidPreview`] when nothing routable is found, a routed
+/// document names a file the skill does not write, or there are more files
+/// than destinations.
+pub fn route_files(text: &str, paths: &[&str]) -> Result<String, Error> {
+    if let Ok(docs) = parse_storybible(text) {
+        if let Some(stray) = docs.iter().find(|doc| !paths.contains(&doc.path.as_str())) {
+            return Err(Error::InvalidPreview(format!(
+                "the answer writes {}, which this skill does not produce (expected: {})",
+                stray.path,
+                paths.join(", ")
+            )));
+        }
+        return Ok(documents_text(&merge_documents(docs)));
+    }
+    let parts = fenced_blocks(text).unwrap_or_else(|| split_files(text));
+    if parts.is_empty() {
+        return Err(Error::InvalidPreview("output is empty".into()));
+    }
+    if parts.len() > paths.len() {
+        return Err(Error::InvalidPreview(format!(
+            "the answer has {} files; this skill writes {} ({})",
+            parts.len(),
+            paths.len(),
+            paths.join(", ")
+        )));
+    }
+    let docs: Vec<BibleDoc> = parts
+        .iter()
+        .zip(paths)
+        .map(|(part, path)| {
+            let (frontmatter, body) = split_frontmatter(part);
+            BibleDoc {
+                path: (*path).to_owned(),
+                frontmatter,
+                body,
+            }
+        })
+        .collect();
+    Ok(documents_text(&docs))
+}
+
+/// The contents of each top-level ```` ``` ```` block, if the text has any.
+fn fenced_blocks(text: &str) -> Option<Vec<String>> {
+    let mut blocks = Vec::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            match current.take() {
+                Some(block) => blocks.push(block),
+                None => current = Some(String::new()),
+            }
+            continue;
+        }
+        if let Some(block) = current.as_mut() {
+            block.push_str(line);
+            block.push('\n');
+        }
+    }
+    if blocks.is_empty() {
+        None
+    } else {
+        Some(blocks)
+    }
+}
+
+/// Plain files written one after another: a new file starts at each
+/// frontmatter block that opens after the previous file's body.
+fn split_files(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if is_fence(lines[i])
+            && (i == 0 || lines[i - 1].trim().is_empty())
+            && let Some(end) = next_fence(&lines, i + 1)
+            && !parse_keys(&lines[i + 1..end]).is_empty()
+        {
+            starts.push(i);
+            i = end + 1;
+            continue;
+        }
+        i += 1;
+    }
+    if starts.first() != Some(&0) {
+        starts.insert(0, 0);
+    }
+    starts
+        .iter()
+        .enumerate()
+        .map(|(n, &start)| {
+            let end = starts.get(n + 1).copied().unwrap_or(lines.len());
+            lines[start..end].join("\n")
+        })
+        .filter(|part| !part.trim().is_empty())
+        .collect()
+}
+
+/// `(frontmatter, body)` of one file's text.
+fn split_frontmatter(text: &str) -> (String, String) {
+    let lines: Vec<&str> = text.trim().lines().collect();
+    if lines.first().is_some_and(|line| is_fence(line))
+        && let Some(end) = next_fence(&lines, 1)
+    {
+        return (
+            lines[1..end].join("\n").trim().to_owned(),
+            lines[end + 1..].join("\n").trim().to_owned(),
+        );
+    }
+    (String::new(), text.trim().to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -427,6 +740,18 @@ mod tests {
         assert!(!docs[0].frontmatter.contains("path:"));
         assert_eq!(docs[1].path, "Wiki/Characters/Nia_Farrow.md");
         assert!(docs[1].body.starts_with("# Nia"));
+    }
+
+    #[test]
+    fn a_crlf_bible_routes_like_an_lf_one() {
+        let crlf = parse_storybible(&BIBLE.replace('\n', "\r\n")).unwrap();
+        let lf = parse_storybible(BIBLE).unwrap();
+        let paths = |docs: &[_]| {
+            docs.iter()
+                .map(|d: &BibleDoc| d.path.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths(&crlf), paths(&lf));
     }
 
     #[test]
@@ -510,6 +835,11 @@ mod tests {
             nested.join(STORYBIBLE_FILE),
             "a bible one level down still names the book folder"
         );
+        assert_eq!(
+            find_storybible_rel(tmp.path()).as_deref(),
+            Some("salt-ledger/storybible.md"),
+            "relative, with `/` on every platform"
+        );
         fs::write(tmp.path().join(STORYBIBLE_FILE), BIBLE).unwrap();
         assert_eq!(
             find_storybible(tmp.path()).unwrap(),
@@ -534,6 +864,77 @@ mod tests {
     fn reads_a_working_title_out_of_any_document() {
         assert_eq!(storybible_title(BIBLE).as_deref(), Some("Salt Ledger"));
         assert_eq!(storybible_title("\n# nothing\n"), None);
+    }
+
+    #[test]
+    fn split_source_keeps_every_byte_in_order() {
+        let text = "# One\nalpha\n\n## Two\nbeta beta beta\n\n# Three\n".to_owned()
+            + &"long paragraph. ".repeat(20)
+            + "\n\nend\n";
+        let pieces = split_source(&text, 60);
+        assert!(pieces.len() > 2, "{pieces:?}");
+        assert!(pieces.iter().all(|p| p.len() <= 60), "{pieces:?}");
+        assert_eq!(pieces.concat(), text);
+        assert!(pieces[0].starts_with("# One"));
+    }
+
+    #[test]
+    fn same_destination_documents_are_merged_not_replaced() {
+        let docs = parse_storybible(
+            "---\nslot: character\nname: Mira\nrole: protagonist\n---\n\nCounts coins twice.\n\n\
+             ---\nslot: genre\ngenre: Fantasy\n---\n\n# Genre\n\n\
+             ---\nslot: character\nname: Mira\nrole: villain\nage: 28\n---\n\nHates the tide office.\n",
+        )
+        .unwrap();
+        let merged = merge_documents(docs);
+        assert_eq!(merged.len(), 2);
+        let mira = &merged[0];
+        assert_eq!(mira.path, "Wiki/Characters/Mira.md");
+        assert!(mira.frontmatter.contains("role: protagonist"));
+        assert!(!mira.frontmatter.contains("villain"), "first value wins");
+        assert!(mira.frontmatter.contains("age: 28"), "new keys are added");
+        assert!(mira.body.contains("Counts coins") && mira.body.contains("tide office"));
+    }
+
+    const STYLE_FILES: [&str; 2] = ["Wiki/Style/style_guide.md", "Wiki/Style/review_guide.md"];
+
+    #[test]
+    fn two_fenced_files_route_in_order() {
+        let answer = "```markdown\n---\ntitle: \"Style Guide\"\nperson: third\n---\n\n## Style\n\nClose third.\n```\n\n```markdown\n---\ntitle: \"Review Guide\"\n---\n\n## Forbidden Words\n- suddenly\n```\n";
+        let routed = route_files(answer, &STYLE_FILES).unwrap();
+        let docs = parse_storybible(&routed).unwrap();
+        assert_eq!(docs.len(), 2);
+        assert_eq!(docs[0].path, STYLE_FILES[0]);
+        assert!(docs[0].frontmatter.contains("person: third"));
+        assert!(docs[0].body.starts_with("## Style"));
+        assert_eq!(docs[1].path, STYLE_FILES[1]);
+        assert!(docs[1].body.contains("suddenly"));
+        assert!(!routed.contains("```"));
+    }
+
+    #[test]
+    fn plain_files_in_a_row_route_in_order() {
+        let answer = "---\ntitle: Style\n---\n\n## Style\n\nClose third.\n\n---\ntitle: Review\n---\n\n## Crutch Words\n- felt\n";
+        let docs = parse_storybible(&route_files(answer, &STYLE_FILES).unwrap()).unwrap();
+        assert_eq!(docs.len(), 2);
+        assert_eq!(docs[1].path, STYLE_FILES[1]);
+        assert!(docs[1].body.contains("felt"));
+    }
+
+    #[test]
+    fn routed_documents_are_used_as_given_but_only_for_known_files() {
+        let answer = "---\npath: Wiki/Style/review_guide.md\n---\n\n## Forbidden Words\n\n---\npath: Wiki/Style/style_guide.md\nperson: first\n---\n\n## Style\n";
+        let docs = parse_storybible(&route_files(answer, &STYLE_FILES).unwrap()).unwrap();
+        assert_eq!(docs[0].path, STYLE_FILES[1]);
+        let stray = "---\npath: Wiki/Story/theme.md\n---\n\nnope\n";
+        assert!(route_files(stray, &STYLE_FILES).is_err());
+        let one = "---\ntitle: Style\n---\n\n## Style\n\nOnly the guide.\n";
+        assert_eq!(
+            parse_storybible(&route_files(one, &STYLE_FILES).unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

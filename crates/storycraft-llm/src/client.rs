@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, RETRY_AFTER};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::sse::{SseBuffer, complete_text, delta_text};
 use crate::{Error, Secret};
@@ -57,7 +57,9 @@ pub struct ProviderConfig {
     pub api_style: ApiStyle,
     /// Model id.
     pub model: String,
-    /// Per-request timeout.
+    /// Longest silence allowed while waiting on the provider. Not a cap on the
+    /// whole request: a chapter can stream for many minutes as long as bytes
+    /// keep arriving.
     pub timeout: Duration,
     /// When false, parse a single JSON body instead of SSE.
     pub stream: bool,
@@ -78,7 +80,7 @@ impl std::fmt::Debug for ProviderConfig {
 }
 
 impl ProviderConfig {
-    /// OpenAI-compatible defaults: 120s timeout, streaming chat completions.
+    /// OpenAI-compatible defaults: 120s idle timeout, streaming chat completions.
     #[must_use]
     pub fn openai_compat(base_url: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
@@ -107,7 +109,8 @@ impl OpenAiClient {
     /// Returns [`Error::Transport`] if the reqwest client cannot be built.
     pub fn new(config: ProviderConfig) -> Result<Self, Error> {
         let http = reqwest::Client::builder()
-            .timeout(config.timeout)
+            .connect_timeout(Duration::from_secs(30))
+            .read_timeout(config.timeout)
             .build()
             .map_err(Error::Transport)?;
         Ok(Self { http, config })
@@ -208,13 +211,18 @@ impl OpenAiClient {
                 return Err(Error::Cancelled);
             }
             match self.once(system, user, cancel, &mut on_delta).await {
-                Err(Error::Http { status: 429, .. }) if attempt < 3 => {
+                // 429, and the 5xx a busy provider returns for a moment
+                // ("Internal error encountered", overloaded): worth a retry.
+                Err(Error::Http { status, .. })
+                    if (status == 429 || (500..600).contains(&status)) && attempt < 3 =>
+                {
                     attempt = attempt.saturating_add(1);
                     let wait = Duration::from_millis(500u64.saturating_mul(1u64 << (attempt - 1)));
                     info!(
                         attempt,
+                        status,
                         wait_ms = wait.as_millis() as u64,
-                        "retrying after 429"
+                        "retrying after a transient provider error"
                     );
                     tokio::select! {
                         () = cancel.cancelled() => return Err(Error::Cancelled),
@@ -323,8 +331,8 @@ impl OpenAiClient {
                 None => break,
                 Some(Err(err)) => return Err(Error::Transport(err)),
                 Some(Ok(bytes)) => {
-                    let piece = String::from_utf8_lossy(&bytes);
-                    for data in sse.push(&piece) {
+                    for data in sse.push(&bytes) {
+                        debug!(event = %data.chars().take(300).collect::<String>(), "stream event");
                         if let Some(delta) = delta_text(&data) {
                             on_delta(&delta)?;
                             out.push_str(&delta);

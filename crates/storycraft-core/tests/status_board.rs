@@ -86,3 +86,32 @@ fn spark_ignores_wiki() {
     let board = board(&fixture("half-spine"), Mode::Spark);
     assert_eq!(board.next().skill.as_deref(), Some("fiction-story-sparks"));
 }
+
+/// Copy a fixture with every line ending turned into CRLF, the way an editor on
+/// Windows saves it.
+fn crlf_copy(src: &Path, dst: &Path) {
+    for entry in walkdir::WalkDir::new(src) {
+        let entry = entry.unwrap();
+        let target = dst.join(entry.path().strip_prefix(src).unwrap());
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target).unwrap();
+        } else {
+            let text = std::fs::read_to_string(entry.path()).unwrap();
+            std::fs::write(&target, text.replace("\r\n", "\n").replace('\n', "\r\n")).unwrap();
+        }
+    }
+}
+
+#[test]
+fn crlf_books_read_the_same_as_lf_books() {
+    for name in ["half-spine", "planning-done"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let book = tmp.path().join(name);
+        crlf_copy(&fixture(name), &book);
+        assert_eq!(
+            snapshot_text(&board(&book, Mode::Resume)),
+            snapshot_text(&board(&fixture(name), Mode::Resume)),
+            "{name} with CRLF endings"
+        );
+    }
+}

@@ -28,7 +28,7 @@ pub(crate) fn next_action(
     mode: Mode,
     chapter: u32,
     slots: &[SlotState; 12],
-    storybible: bool,
+    storybible: Option<bool>,
 ) -> NextAction {
     match mode {
         Mode::Spark => NextAction {
@@ -78,15 +78,22 @@ fn resume_spine(
     project: Option<&ProjectRoot>,
     chapter: u32,
     slots: &[SlotState; 12],
-    storybible: bool,
+    storybible: Option<bool>,
 ) -> NextAction {
     if project.is_none() {
         // A bible on disk is a book waiting to be unpacked; nothing else can
         // start until its Wiki files exist.
-        return if storybible {
+        return if storybible == Some(true) {
             NextAction {
                 skill: Some("storybible-import".to_owned()),
                 why: "storybible.md found with no Wiki; import it to build the book".to_owned(),
+                missing: Vec::new(),
+            }
+        } else if storybible == Some(false) {
+            NextAction {
+                skill: Some("storybible-convert".to_owned()),
+                why: "storybible.md is not in import format yet; convert it, then import"
+                    .to_owned(),
                 missing: Vec::new(),
             }
         } else {

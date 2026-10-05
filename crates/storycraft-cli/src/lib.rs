@@ -559,8 +559,9 @@ pub struct RunRequest {
 /// Returns catalog, require, provider, or validation failures.
 pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
     let catalog = load_catalog(req.skills_dir.as_deref())?;
+    // `fragment-hunter:apply` runs the `fragment-hunter` skill folder.
     let manifest = catalog
-        .get(&req.skill)
+        .get(storycraft_core::base_skill(&req.skill))
         .ok_or_else(|| Error::SkillNotFound(req.skill.clone()))?;
     let project = resolve_project(&req.path)?;
     let chapter = match (req.chapter, project.as_ref()) {
@@ -569,10 +570,14 @@ pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
         (None, None) => 1,
     };
     ensure_requires(project.as_ref(), &manifest.requires, chapter)?;
-    let output_path = resolve_output_path(project.as_ref(), &req.skill, chapter);
     let mode = Mode::for_skill(&req.skill);
     let root = jobs_root(&req.path)?;
     let store = JobStore::open(&root)?;
+    // The converter rewrites the bible where it was found (see the app host).
+    let output_path = match req.skill.as_str() {
+        "storybible-convert" => storycraft_core::find_storybible_rel(&root),
+        _ => resolve_output_path(project.as_ref(), &req.skill, chapter),
+    };
 
     if is_local_tool(&req.skill) {
         return run_local(&req, &store, project.as_ref(), chapter, output_path, mode).await;
@@ -592,6 +597,31 @@ pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
         output_path.as_deref(),
         req.budget,
     )?;
+    // Read what a windowed run needs before a job exists (see the app host).
+    let chapter_text = if storycraft_core::is_report_skill(&req.skill) {
+        let path = project
+            .as_ref()
+            .and_then(|project| find_chapter_prose(project, chapter))
+            .ok_or_else(|| anyhow!("no chapter prose for chapter {chapter}; draft it first"))?;
+        Some(std::fs::read_to_string(&path).with_context(|| path.display().to_string())?)
+    } else {
+        None
+    };
+    let saved_report = match storycraft_core::applied_report_skill(&req.skill) {
+        Some(base) => {
+            let rel = resolve_output_path(project.as_ref(), base, chapter);
+            let saved = project
+                .as_ref()
+                .zip(rel)
+                .and_then(|(project, rel)| std::fs::read_to_string(project.path().join(rel)).ok());
+            Some(saved.ok_or_else(|| {
+                anyhow!(
+                    "no saved {base} report for chapter {chapter}; run {base} and save its report first"
+                )
+            })?)
+        }
+        None => None,
+    };
     let mut job = store.create(NewJob {
         skill: req.skill.clone(),
         mode,
@@ -607,8 +637,20 @@ pub async fn execute_run(req: RunRequest) -> anyhow::Result<Job> {
 
     let client = build_client(&req, &job.model).await?;
     let cancel = CancellationToken::new();
-    let text = if is_chunked_skill(&req.skill) {
-        run_chunked(&store, &job, &client, &prompt, &cancel).await
+    let text = if let Some(chapter_text) = &chapter_text {
+        run_report(&store, &job, &client, &prompt, chapter_text, &cancel).await
+    } else if is_chunked_skill(&req.skill) {
+        run_chunked(
+            &store,
+            &job,
+            &client,
+            &prompt,
+            saved_report.as_deref(),
+            &cancel,
+        )
+        .await
+    } else if req.skill == "storybible-convert" {
+        run_convert(&store, &job, &client, &prompt, &cancel).await
     } else {
         let preview_id = job.id.clone();
         client
@@ -639,6 +681,15 @@ fn finish_preview(
     job: &mut Job,
     text: &str,
 ) -> anyhow::Result<Job> {
+    let text = &match storycraft_core::finish_model_output(&job.skill, text) {
+        Ok(text) => text,
+        Err(err) => {
+            // Keep the raw answer on disk so the user can see what came back.
+            store.write_preview(&job.id, text)?;
+            store.fail(job, err.to_string())?;
+            return Err(err.into());
+        }
+    };
     store.write_preview(&job.id, text)?;
     if let Err(err) = validate_preview(&job.skill, text) {
         store.fail(job, err.to_string())?;
@@ -669,6 +720,7 @@ async fn run_chunked(
     job: &Job,
     client: &OpenAiClient,
     prompt: &storycraft_core::Prompt,
+    report: Option<&str>,
     cancel: &CancellationToken,
 ) -> anyhow::Result<String> {
     let original = store.read_original(&job.id)?;
@@ -681,15 +733,93 @@ async fn run_chunked(
     let chunks = split_lines(&original, CHUNK_LINES);
     let total_lines = original.lines().count();
     let mut merged = Vec::with_capacity(chunks.len());
+    let mut refused = 0usize;
     for chunk in &chunks {
-        let piece = storycraft_core::build_chunk_prompt(prompt, chunk, total_lines);
+        let piece = match report {
+            Some(report) => {
+                storycraft_core::build_apply_chunk_prompt(prompt, report, chunk, total_lines)
+            }
+            None => storycraft_core::build_chunk_prompt(prompt, chunk, total_lines),
+        };
         let edited = client
             .complete(&piece.system, &piece.user, cancel, |_| Ok(()))
             .await?;
-        merged.push(apply_chunk_edit(&chunk.text, &edited));
+        // Apply runs answer with numbered lines; anything else is window text.
+        let numbered = report
+            .is_some()
+            .then(|| storycraft_core::apply_numbered_edits(chunk, &edited))
+            .flatten();
+        if let Some(window) = numbered {
+            merged.push(window);
+        } else {
+            if storycraft_core::chunk_edit_refused(&chunk.text, &edited) {
+                refused = refused.saturating_add(1);
+            }
+            merged.push(apply_chunk_edit(&chunk.text, &edited));
+        }
         store.write_preview(&job.id, &merge_chunks(&merged))?;
     }
+    if refused == chunks.len() {
+        return Err(anyhow!(
+            "the model answered with a report instead of the edited chapter, so nothing was \
+             changed; try again or pick another model"
+        ));
+    }
     Ok(merge_chunks(&merged))
+}
+
+/// Run a report skill window by window (see the app host).
+async fn run_report(
+    store: &JobStore,
+    job: &Job,
+    client: &OpenAiClient,
+    prompt: &storycraft_core::Prompt,
+    chapter_text: &str,
+    cancel: &CancellationToken,
+) -> anyhow::Result<String> {
+    let chunks = split_lines(chapter_text, CHUNK_LINES);
+    let total_lines = chapter_text.lines().count();
+    let title = format!("{} — chapter {}", job.skill, job.chapter);
+    let mut windows = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        let piece = storycraft_core::build_report_chunk_prompt(prompt, &chunk, total_lines);
+        let answer = client
+            .complete(&piece.system, &piece.user, cancel, |_| Ok(()))
+            .await?;
+        windows.push((chunk, answer));
+        store.write_preview(
+            &job.id,
+            &storycraft_core::merge_window_reports(&title, &windows),
+        )?;
+    }
+    Ok(storycraft_core::merge_window_reports(&title, &windows))
+}
+
+/// Convert a free-form `storybible.md` section by section (see the app host).
+async fn run_convert(
+    store: &JobStore,
+    job: &Job,
+    client: &OpenAiClient,
+    prompt: &storycraft_core::Prompt,
+    cancel: &CancellationToken,
+) -> anyhow::Result<String> {
+    let source = store.read_original(&job.id)?;
+    if source.trim().is_empty() {
+        return Err(anyhow!(
+            "no storybible.md in this folder to convert; put your bible there first"
+        ));
+    }
+    let sections = storycraft_core::split_source(&source, 12_000);
+    let mut answers = Vec::with_capacity(sections.len());
+    for (i, section) in sections.iter().enumerate() {
+        let piece = storycraft_core::build_section_prompt(prompt, i, sections.len(), section);
+        answers.push(
+            client
+                .complete(&piece.system, &piece.user, cancel, |_| Ok(()))
+                .await?,
+        );
+    }
+    Ok(storycraft_core::assemble_converted(&answers)?)
 }
 
 async fn run_local(

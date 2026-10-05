@@ -111,8 +111,9 @@ fn the_imported_book_is_ready_to_draft() {
 
     let after = StatusBoard::inspect_folder(tmp.path(), Mode::Resume, 1).unwrap();
     assert_eq!(
-        after.project().unwrap().path(),
-        fs::canonicalize(&book).unwrap().as_path(),
+        // Both sides: Windows canonicalizes to a `\\?\` verbatim path.
+        fs::canonicalize(after.project().unwrap().path()).unwrap(),
+        fs::canonicalize(&book).unwrap(),
         "the board finds the imported book"
     );
     for slot in [
@@ -185,4 +186,70 @@ fn a_saved_preview_is_itself_a_storybible() {
     let docs = storycraft_core::parse_storybible(&preview).unwrap();
     assert_eq!(docs.len(), 12, "every document survives the round trip");
     assert!(docs.iter().any(|doc| doc.path == "Wiki/Style/genre.md"));
+}
+
+/// A bible in the author's own format: the board offers the converter, the
+/// converted bible keeps the original beside it, and the import that follows
+/// merges what several sections said about one character.
+#[test]
+fn a_free_form_bible_is_converted_then_imported() {
+    let tmp = tempfile::tempdir().unwrap();
+    let book = tmp.path().join("salt-ledger");
+    fs::create_dir_all(&book).unwrap();
+    let source = "# Salt Ledger — my notes\r\n\r\n## Mira\r\nTide clerk. Counts twice.\r\n\r\n## Ports\r\nPort Vell is on stilts. Mira hates the tide office.\r\n";
+    fs::write(book.join(STORYBIBLE_FILE), source).unwrap();
+
+    let board = StatusBoard::inspect_folder(&book, Mode::Resume, 1).unwrap();
+    assert_eq!(board.next().skill.as_deref(), Some("storybible-convert"));
+
+    // What the model answers for each section (simulated).
+    let sections = storycraft_core::split_source(source, 60);
+    assert!(sections.len() >= 2, "{sections:?}");
+    let answers = vec![
+        "```markdown\n---\nslot: genre\nworking_title: \"Salt Ledger\"\ngenre: Fantasy\n---\n\n# Genre\n\n## tone_notes\n\nFog, tar, and wet paper.\n```".to_owned(),
+        "---\nslot: character\nname: Mira\nrole: protagonist\n---\n\n## personality\n\nTide clerk. Counts twice.\n".to_owned(),
+        "NO DOCUMENTS".to_owned(),
+        "---\nslot: location\nname: Port Vell\n---\n\nOn stilts.\n\n---\nslot: character\nname: Mira\n---\n\n## backstory\n\nHates the tide office.\n".to_owned(),
+    ];
+    let converted = storycraft_core::assemble_converted(&answers).unwrap();
+    storycraft_core::validate_preview("storybible-convert", &converted).unwrap();
+
+    let store = JobStore::open(&book).unwrap();
+    let mut job = store
+        .create(NewJob {
+            skill: "storybible-convert".into(),
+            mode: Mode::SingleSkill,
+            chapter: 1,
+            answers: Vec::new(),
+            packed_context_hash: "test".into(),
+            provider: "test".into(),
+            model: "test".into(),
+            output_path: Some(STORYBIBLE_FILE.into()),
+        })
+        .unwrap();
+    store.write_preview(&job.id, &converted).unwrap();
+    store.set_status(&mut job, JobStatus::NeedsConfirm).unwrap();
+    store.commit(&mut job).unwrap();
+    assert_eq!(
+        fs::read_to_string(book.join("storybible.source.md")).unwrap(),
+        source,
+        "the author's original is kept"
+    );
+
+    let board = StatusBoard::inspect_folder(&book, Mode::Resume, 1).unwrap();
+    assert_eq!(board.next().skill.as_deref(), Some("storybible-import"));
+
+    import(&book);
+    let mira = fs::read_to_string(book.join("Wiki/Characters/Mira.md")).unwrap();
+    assert!(mira.contains("role: protagonist"), "{mira}");
+    assert!(
+        mira.contains("Counts twice") && mira.contains("Hates the tide office"),
+        "{mira}"
+    );
+    assert!(book.join("Wiki/Locations/Port_Vell.md").is_file());
+    assert!(
+        !fs::read_to_string(book.join("Wiki/Style/genre.md"))
+            .unwrap()
+            .contains("```")
+    );
 }

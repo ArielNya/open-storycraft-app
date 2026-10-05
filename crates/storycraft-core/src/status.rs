@@ -187,7 +187,11 @@ impl StatusBoard {
                 slots[slot.index()] = inspect_slot(project, slot, chapter);
             }
         }
-        let next = next_action(project, mode, chapter, &slots, storybible.is_some());
+        // Some(importable): a free-form bible needs converting before import.
+        let bible = storybible.as_ref().map(|path| {
+            fs::read_to_string(path).is_ok_and(|text| crate::bible::is_importable(&text))
+        });
+        let next = next_action(project, mode, chapter, &slots, bible);
         Ok(Self {
             project: project.cloned(),
             storybible,

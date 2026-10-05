@@ -29,6 +29,7 @@ A storybible is one markdown file that carries a whole book. Two skills cover it
 | Skill | Does | Runs |
 |---|---|---|
 | fiction-storybible | Writes `storybible.md` beside `Wiki/`, either assembling existing canon or authoring a new book | model |
+| storybible-convert | Rewrites a bible the author already has, in any format, as `storybible.md`; keeps the original as `storybible.source.md` | model, one call per section |
 | storybible-import | Splits that file into `Wiki/…` and `Chapters/…` files | local, no model, no key |
 
 Use them to move a book between machines, to hand a whole plan to someone in one file, or to start a project from a bible someone else wrote. Format reference: `fiction-storybible/references/storybible-format.md`.
@@ -39,6 +40,7 @@ Use them to move a book between machines, to hand a whole plan to someone in one
 |---|---|
 | spark, random prompt, fortune room, writing exercise | fiction-story-sparks |
 | story bible, storybible, whole book in one file, export the book as one file | fiction-storybible |
+| convert my story bible, use my existing notes, my bible is in another format | storybible-convert |
 | import my bible, turn this bible into a book, set up the project from storybible.md | storybible-import |
 | pick a genre, tropes, subgenre | fiction-genre |
 | who is this for, age group, heat, rating | fiction-audience |

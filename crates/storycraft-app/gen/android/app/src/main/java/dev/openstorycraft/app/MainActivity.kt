@@ -8,16 +8,4 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
   }
-
-  fun startJobService(skill: String) {
-    JobForegroundService.start(this, skill)
-  }
-
-  fun stopJobService() {
-    JobForegroundService.stop(this)
-  }
-
-  fun openAuthTab(url: String) {
-    CustomTabs.open(this, url)
-  }
 }

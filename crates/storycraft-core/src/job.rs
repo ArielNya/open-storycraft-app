@@ -347,7 +347,7 @@ impl JobStore {
             });
         }
         match skill_output(&job.skill) {
-            SkillOutput::Bundle => return self.commit_bundle(job),
+            SkillOutput::Bundle | SkillOutput::Files(_) => return self.commit_bundle(job),
             SkillOutput::CharactersDir => return self.commit_characters(job),
             _ => {}
         }
@@ -360,6 +360,9 @@ impl JobStore {
         };
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(|err| Error::io(parent, err))?;
+        }
+        if job.skill == "storybible-convert" {
+            keep_source_bible(&dest)?;
         }
         let preview = self.read_preview(&job.id)?;
         write_atomic(&dest, preview.as_bytes())?;
@@ -458,6 +461,21 @@ fn new_job_id(skill: &str, dir: &Path) -> String {
         }
     }
     id
+}
+
+/// Before a converted bible replaces `storybible.md`, keep the author's
+/// original beside it as `storybible.source.md`. An existing copy is never
+/// overwritten: the first original is the one worth keeping.
+fn keep_source_bible(bible: &Path) -> Result<(), Error> {
+    if !bible.is_file() {
+        return Ok(());
+    }
+    let source = bible.with_file_name("storybible.source.md");
+    if source.exists() {
+        return Ok(());
+    }
+    fs::copy(bible, &source).map_err(|err| Error::io(&source, err))?;
+    Ok(())
 }
 
 #[cfg(test)]

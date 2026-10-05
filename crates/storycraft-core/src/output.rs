@@ -1,7 +1,7 @@
 //! Canonical Wiki / chapter destinations for each skill.
 
 use crate::Error;
-use crate::chunk::is_chunked_skill;
+use crate::chunk::{is_chunked_skill, report_suffix};
 use crate::paths::{find_chapter_prose, find_psych_file, find_scene_files, wiki_markdown_files};
 use crate::project::ProjectRoot;
 use crate::wiki::{default_chapter_rel, default_psych_rel, default_scene_rel};
@@ -18,6 +18,9 @@ pub enum SkillOutput {
     /// Many files at once, each document naming its own destination in
     /// frontmatter. Used by the storybible importer.
     Bundle,
+    /// A fixed set of files written together, first one primary. The preview
+    /// is stored as storybible documents and saved like a bundle.
+    Files(&'static [&'static str]),
     /// Chapter-scoped scene plan.
     Scene,
     /// Chapter-scoped psych pass.
@@ -26,6 +29,8 @@ pub enum SkillOutput {
     ChapterProse,
     /// Editorial rewrite of existing chapter prose.
     ChapterRewrite,
+    /// Findings report saved beside the chapter: `Chapter-001` + suffix + `.md`.
+    ChapterReport(&'static str),
     /// Not in the v1 map; host keeps a preview and does not guess.
     Unknown,
 }
@@ -40,21 +45,40 @@ pub fn skill_output(skill: &str) -> SkillOutput {
         | "coldread"
         | "name-generator"
         | "town-generator" => SkillOutput::None,
-        "fiction-storybible" => SkillOutput::WikiFile("storybible.md"),
+        "fiction-storybible" | "storybible-convert" => SkillOutput::WikiFile("storybible.md"),
         "storybible-import" => SkillOutput::Bundle,
         "fiction-genre" => SkillOutput::WikiFile("Wiki/Style/genre.md"),
         "fiction-audience" => SkillOutput::WikiFile("Wiki/Style/audience.md"),
         "fiction-theme" => SkillOutput::WikiFile("Wiki/Story/theme.md"),
         "fiction-synopsis" => SkillOutput::WikiFile("Wiki/Story/synopsis.md"),
-        "fiction-style" => SkillOutput::WikiFile("Wiki/Style/style_guide.md"),
+        "fiction-style" => {
+            SkillOutput::Files(&["Wiki/Style/style_guide.md", "Wiki/Style/review_guide.md"])
+        }
         "fiction-voiceprompt" => SkillOutput::WikiFile("Wiki/Style/voice_prompt.md"),
         "fiction-outline" => SkillOutput::WikiFile("Wiki/Outline/outline.md"),
         "fiction-characters" => SkillOutput::CharactersDir,
         "fiction-scenes" => SkillOutput::Scene,
         "fiction-psych" => SkillOutput::Psych,
         "fiction-writechapter" => SkillOutput::ChapterProse,
+        other if let Some(suffix) = report_suffix(other) => SkillOutput::ChapterReport(suffix),
         other if is_chunked_skill(other) => SkillOutput::ChapterRewrite,
         _ => SkillOutput::Unknown,
+    }
+}
+
+/// Turn a model's raw answer into the preview the host stores and saves.
+///
+/// Skills that write several files get their answer routed into storybible
+/// documents; everything else loses the ```` ```markdown ```` fence some
+/// models wrap a whole-file answer in.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidPreview`] when a multi-file answer cannot be routed.
+pub fn finish_model_output(skill: &str, raw: &str) -> Result<String, Error> {
+    match skill_output(skill) {
+        SkillOutput::Files(paths) => crate::bible::route_files(raw, paths),
+        _ => Ok(crate::chunk::unwrap_model_output(raw)),
     }
 }
 
@@ -63,6 +87,7 @@ pub fn skill_output(skill: &str) -> SkillOutput {
 pub fn output_rel_path(skill: &str) -> Option<&'static str> {
     match skill_output(skill) {
         SkillOutput::WikiFile(path) => Some(path),
+        SkillOutput::Files(paths) => paths.first().copied(),
         _ => None,
     }
 }
@@ -77,6 +102,7 @@ pub fn resolve_output_path(
     match skill_output(skill) {
         SkillOutput::None | SkillOutput::Unknown | SkillOutput::Bundle => None,
         SkillOutput::WikiFile(path) => Some(path.to_owned()),
+        SkillOutput::Files(paths) => paths.first().map(|path| (*path).to_owned()),
         SkillOutput::CharactersDir => Some("Wiki/Characters".to_owned()),
         SkillOutput::Scene => Some(match project {
             Some(project) => find_scene_files(project, chapter)
@@ -101,6 +127,16 @@ pub fn resolve_output_path(
         SkillOutput::ChapterRewrite => project.and_then(|project| {
             find_chapter_prose(project, chapter).and_then(|path| rel_to_project(project, &path))
         }),
+        SkillOutput::ChapterReport(suffix) => {
+            let chapter_rel = project
+                .and_then(|project| {
+                    find_chapter_prose(project, chapter)
+                        .and_then(|path| rel_to_project(project, &path))
+                })
+                .unwrap_or_else(|| default_chapter_rel(chapter));
+            let stem = chapter_rel.strip_suffix(".md").unwrap_or(&chapter_rel);
+            Some(format!("{stem}{suffix}.md"))
+        }
     }
 }
 
@@ -114,8 +150,14 @@ fn rel_to_project(project: &ProjectRoot, path: &std::path::Path) -> Option<Strin
 #[must_use]
 pub fn requirement_satisfied(project: &ProjectRoot, required_skill: &str, chapter: u32) -> bool {
     match skill_output(required_skill) {
-        SkillOutput::None | SkillOutput::Unknown | SkillOutput::Bundle => true,
+        SkillOutput::None
+        | SkillOutput::Unknown
+        | SkillOutput::Bundle
+        | SkillOutput::ChapterReport(_) => true,
         SkillOutput::WikiFile(rel) => file_has_substance(&project.path().join(rel)),
+        SkillOutput::Files(paths) => paths
+            .first()
+            .is_some_and(|rel| file_has_substance(&project.path().join(rel))),
         SkillOutput::CharactersDir => wiki_markdown_files(&project.wiki().join("Characters"))
             .iter()
             .any(|path| file_has_substance(path)),

@@ -297,3 +297,157 @@ async fn burstiness_runs_locally_without_a_provider() {
     .unwrap();
     assert!(preview.contains("dialogue ratio"));
 }
+
+/// Mount `answers` as consecutive SSE replies, in order.
+async fn reply_in_order(server: &MockServer, answers: &[String]) {
+    for (i, answer) in answers.iter().enumerate() {
+        let mock = Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_text(answer)),
+            );
+        // The last answer keeps answering; earlier ones answer once.
+        let mock = if i + 1 < answers.len() {
+            mock.up_to_n_times(1)
+        } else {
+            mock
+        };
+        mock.mount(server).await;
+    }
+}
+
+/// A report skill: findings saved beside the chapter, chapter untouched; then
+/// `:apply` rewrites the chapter from that saved report.
+#[tokio::test(flavor = "current_thread")]
+async fn fragment_report_is_saved_then_applied() {
+    let server = MockServer::start().await;
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("Wiki/Style")).unwrap();
+    fs::write(
+        tmp.path().join("Wiki/Style/genre.md"),
+        "---\ngenre: Fantasy\n---\n\n# Genre\n\nEnough text to count as real.\n",
+    )
+    .unwrap();
+    fs::create_dir_all(tmp.path().join("Chapters")).unwrap();
+    let chapter = numbered_chapter(50);
+    fs::write(tmp.path().join("Chapters/Chapter-001.md"), &chapter).unwrap();
+
+    reply_in_order(
+        &server,
+        &[
+            "NOTHING IN THIS WINDOW".to_owned(),
+            "**Line 45:** `He just walked line 45.` — KILL. Fix: He walked line 45.".to_owned(),
+        ],
+    )
+    .await;
+    let job = execute_run(run_req(
+        &server,
+        "fragment-hunter",
+        tmp.path().to_path_buf(),
+        true,
+    ))
+    .await
+    .unwrap();
+    assert_eq!(job.status, JobStatus::Saved);
+    let report =
+        fs::read_to_string(tmp.path().join("Chapters/Chapter-001_FragmentHunt.md")).unwrap();
+    assert!(report.contains("## Lines 41–50"), "{report}");
+    assert!(report.contains("Line 45"), "{report}");
+    assert_eq!(
+        fs::read_to_string(tmp.path().join("Chapters/Chapter-001.md")).unwrap(),
+        chapter,
+        "a report never edits the chapter"
+    );
+
+    server.reset().await;
+    // Apply answers name only the lines they change.
+    reply_in_order(
+        &server,
+        &[
+            "NO CHANGES".to_owned(),
+            "   45| He walked line 45.".to_owned(),
+        ],
+    )
+    .await;
+    let applied = execute_run(run_req(
+        &server,
+        "fragment-hunter:apply",
+        tmp.path().to_path_buf(),
+        true,
+    ))
+    .await
+    .unwrap();
+    assert_eq!(applied.status, JobStatus::Saved);
+    let live = fs::read_to_string(tmp.path().join("Chapters/Chapter-001.md")).unwrap();
+    assert!(live.contains("He walked line 45.\n"));
+    assert!(live.contains("He just walked line 44.\n"));
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests
+            .iter()
+            .all(|r| String::from_utf8_lossy(&r.body).contains("Saved report")),
+        "every apply window carries the saved report"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn applying_without_a_saved_report_says_what_to_run() {
+    let server = MockServer::start().await;
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("Wiki/Style")).unwrap();
+    fs::write(
+        tmp.path().join("Wiki/Style/genre.md"),
+        "---\ngenre: Fantasy\n---\n\n# Genre\n\nEnough text to count as real.\n",
+    )
+    .unwrap();
+    fs::create_dir_all(tmp.path().join("Chapters")).unwrap();
+    fs::write(
+        tmp.path().join("Chapters/Chapter-001.md"),
+        numbered_chapter(5),
+    )
+    .unwrap();
+    let err = execute_run(run_req(
+        &server,
+        "fiction-line-editor:apply",
+        tmp.path().to_path_buf(),
+        false,
+    ))
+    .await
+    .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("run fiction-line-editor and save its report first"),
+        "{err}"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_refused_apply_leaves_no_job_behind() {
+    let server = MockServer::start().await;
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("Chapters")).unwrap();
+    fs::write(
+        tmp.path().join("Chapters/Chapter-001.md"),
+        numbered_chapter(5),
+    )
+    .unwrap();
+    fs::create_dir_all(tmp.path().join("Wiki/Style")).unwrap();
+    fs::write(
+        tmp.path().join("Wiki/Style/genre.md"),
+        "---\ngenre: Fantasy\n---\n\n# Genre\n\nEnough text to count as real.\n",
+    )
+    .unwrap();
+    execute_run(run_req(
+        &server,
+        "fragment-hunter:apply",
+        tmp.path().to_path_buf(),
+        false,
+    ))
+    .await
+    .unwrap_err();
+    let jobs = tmp.path().join(".storycraft/jobs");
+    let left = fs::read_dir(&jobs).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(left, 0, "no job stuck in running");
+}

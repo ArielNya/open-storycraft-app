@@ -33,12 +33,17 @@ mod validate;
 mod wiki;
 
 pub use bible::{
-    BibleDoc, STORYBIBLE_FILE, find_storybible, import_preview as storybible_import_preview,
-    parse_storybible, render_storybible, storybible_title,
+    BibleDoc, STORYBIBLE_FILE, assemble_converted, documents_text, find_storybible,
+    find_storybible_rel, import_preview as storybible_import_preview, is_importable,
+    merge_documents, parse_storybible, render_storybible, route_files, split_source,
+    storybible_title,
 };
 pub use catalog::{Catalog, SkillManifest, find_skills_dir};
 pub use chunk::{
-    CHUNK_LINES, LineChunk, apply_chunk_edit, is_chunked_skill, merge_chunks, split_lines,
+    APPLY_SUFFIX, CHUNK_LINES, LineChunk, NO_CHANGES, NOTHING_IN_WINDOW, applied_report_skill,
+    apply_chunk_edit, apply_numbered_edits, base_skill, chunk_edit_refused, is_chunked_skill,
+    is_report_skill, merge_chunks, merge_window_reports, numbered_window, report_suffix,
+    split_lines, unwrap_model_output,
 };
 pub use diff::unified_diff;
 pub use error::{Error, format_project_list};
@@ -46,8 +51,8 @@ pub use export::export_zip;
 pub use job::{Job, JobStatus, JobStore, NewJob};
 pub use mode::Mode;
 pub use output::{
-    SkillOutput, ensure_requires, output_rel_path, resolve_output_path, skill_output,
-    split_character_preview,
+    SkillOutput, ensure_requires, finish_model_output, output_rel_path, resolve_output_path,
+    skill_output, split_character_preview,
 };
 pub use overlay::{OVERLAY_SKILLS, is_overlay, overlay_allowed};
 pub use pack::{
@@ -59,7 +64,10 @@ pub use paths::{
     padded2,
 };
 pub use project::{ProjectRoot, discover, discover_one};
-pub use prompt::{Prompt, build_chunk_prompt, build_prompt, prepare_skill};
+pub use prompt::{
+    Prompt, build_apply_chunk_prompt, build_chunk_prompt, build_prompt, build_report_chunk_prompt,
+    build_section_prompt, prepare_skill,
+};
 pub use routing::{ModelRouter, is_cheap_skill};
 pub use status::{NextAction, Slot, SlotSnapshot, SlotState, StatusBoard, StatusSnapshot};
 pub use validate::validate_preview;

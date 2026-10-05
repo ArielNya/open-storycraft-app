@@ -37,9 +37,18 @@ pub fn build_prompt(
     system.push_str("Skill: ");
     system.push_str(&manifest.name);
     system.push('\n');
-    system.push_str("Output path: ");
-    system.push_str(output);
-    system.push_str("\n\n");
+    if let crate::output::SkillOutput::Files(paths) = crate::output::skill_output(&manifest.name) {
+        system.push_str("Output files: ");
+        system.push_str(&paths.join(", "));
+        system.push_str(
+            "\nWrite each file as one document: a `---` line, then `path: <file>`, then that \
+file's own frontmatter keys, then `---`, then its body. No code fences around documents.\n\n",
+        );
+    } else {
+        system.push_str("Output path: ");
+        system.push_str(output);
+        system.push_str("\n\n");
+    }
     system.push_str(skill_md);
 
     let mut user = String::new();
@@ -108,11 +117,76 @@ pub fn build_chunk_prompt(base: &Prompt, chunk: &LineChunk, total_lines: usize) 
     let mut system = String::with_capacity(base.system.len() + 160);
     system.push_str(&base.system);
     system.push_str(
-        "\n\nThis call is one 40-line window. Return ONLY the rewritten lines for this window. \
-No report, no markdown fences, no preamble. Copy unchanged lines verbatim.\n",
+        "\n\nHOST OUTPUT CONTRACT — this overrides any output format SKILL.md describes. \
+This call is one 40-line window of the chapter. Return ONLY the rewritten lines for this window: \
+the chapter text itself with your edits applied. No report, no list of findings, no score card, \
+no markdown fences, no preamble. Copy unchanged lines verbatim. If nothing needs changing, \
+return the window unchanged.\n",
     );
     let mut user = String::with_capacity(base.user.len() + chunk.text.len() + 80);
     user.push_str(&base.user);
+    push_window_header(&mut user, chunk, total_lines);
+    user.push_str(&chunk.text);
+    Prompt { system, user }
+}
+
+/// Prompt for one window of a report skill (`fragment-hunter`,
+/// `fiction-line-editor`): findings for this window, in the skill's format.
+#[must_use]
+pub fn build_report_chunk_prompt(base: &Prompt, chunk: &LineChunk, total_lines: usize) -> Prompt {
+    let mut system = String::with_capacity(base.system.len() + 500);
+    system.push_str(&base.system);
+    system.push_str(
+        "\n\nHOST OUTPUT CONTRACT — report mode. This call shows ONE window of the chapter, \
+each line prefixed with its chapter line number (`  12| text`). Write this window's findings in \
+the report format SKILL.md gives, citing those line numbers. Do not rewrite the chapter and do \
+not apply anything: the user reads the report and applies it in a separate step. The host merges \
+the windows, so leave out whole-chapter totals, score cards, and closing offers. If nothing in \
+this window needs a finding, answer exactly: ",
+    );
+    system.push_str(crate::chunk::NOTHING_IN_WINDOW);
+    system.push('\n');
+    let mut user = String::with_capacity(base.user.len() + chunk.text.len() * 2);
+    user.push_str(&base.user);
+    push_window_header(&mut user, chunk, total_lines);
+    user.push_str(&crate::chunk::numbered_window(chunk));
+    Prompt { system, user }
+}
+
+/// Prompt for one window of `<report skill>:apply`: the chapter text with the
+/// saved report's fixes for this window applied, nothing else.
+#[must_use]
+pub fn build_apply_chunk_prompt(
+    base: &Prompt,
+    report: &str,
+    chunk: &LineChunk,
+    total_lines: usize,
+) -> Prompt {
+    let mut system = String::with_capacity(base.system.len() + 500);
+    system.push_str(&base.system);
+    system.push_str(
+        "\n\nHOST OUTPUT CONTRACT — apply mode. This overrides any output format SKILL.md \
+describes. The user saved the report below and asked to apply it. The window is shown with each \
+line prefixed by its line number (`  12| text`). Apply only the fixes the report accepts (kills, \
+suggested rewrites) whose line falls inside this window; never touch a line the report spares or \
+does not mention. Answer with ONLY the lines you change, each as `<line number>| <the whole new \
+line>`, one per line — no report, no unchanged lines, no markdown fences, no preamble. The host \
+keeps every line you do not return exactly as it is. If no fix falls in this window, answer \
+exactly: ",
+    );
+    system.push_str(crate::chunk::NO_CHANGES);
+    system.push('\n');
+    let mut user = String::with_capacity(base.user.len() + report.len() + chunk.text.len() * 2);
+    user.push_str(&base.user);
+    user.push_str("# Saved report\n\n");
+    user.push_str(report);
+    user.push_str("\n\n");
+    push_window_header(&mut user, chunk, total_lines);
+    user.push_str(&crate::chunk::numbered_window(chunk));
+    Prompt { system, user }
+}
+
+fn push_window_header(user: &mut String, chunk: &LineChunk, total_lines: usize) {
     user.push_str("# Chunk (lines ");
     user.push_str(&chunk.start_line.to_string());
     user.push('-');
@@ -120,7 +194,30 @@ No report, no markdown fences, no preamble. Copy unchanged lines verbatim.\n",
     user.push_str(" of ");
     user.push_str(&total_lines.to_string());
     user.push_str(")\n\n");
-    user.push_str(&chunk.text);
+}
+
+/// Prompt for converting one section of a free-form story bible into
+/// storybible documents.
+#[must_use]
+pub fn build_section_prompt(base: &Prompt, index: usize, total: usize, section: &str) -> Prompt {
+    let mut system = String::with_capacity(base.system.len() + 400);
+    system.push_str(&base.system);
+    system.push_str(
+        "\n\nHOST OUTPUT CONTRACT — this call converts ONE section of the source bible. \
+Return only storybible documents (`---`, `path:` or `slot:`, the file's frontmatter, `---`, body) \
+for the material in this section. Other sections are converted in other calls and merged by the \
+host, so do not repeat or summarise material that is not in this section, and do not add a title, \
+table of contents, or notes outside documents. No code fences. If this section holds nothing \
+worth keeping, return exactly: NO DOCUMENTS\n",
+    );
+    let mut user = String::with_capacity(base.user.len() + section.len() + 80);
+    user.push_str(&base.user);
+    user.push_str("# Source bible, section ");
+    user.push_str(&index.saturating_add(1).to_string());
+    user.push_str(" of ");
+    user.push_str(&total.to_string());
+    user.push_str("\n\n");
+    user.push_str(section);
     Prompt { system, user }
 }
 

@@ -1,4 +1,4 @@
-//! Where the API key lives.
+//! Where the API key and the xAI OAuth tokens live.
 //!
 //! Not in the settings file. The settings hold everything else — URL, provider,
 //! model, budget — and none of it is secret. The key goes to the OS secret
@@ -19,6 +19,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use storycraft_auth::TokenSet;
 use storycraft_llm::Secret;
 use tauri::AppHandle;
 
@@ -28,7 +29,9 @@ use crate::paths;
 /// Service name for keyring entries.
 const SERVICE: &str = "dev.openstorycraft.app";
 /// Account name for the API key entry.
-const ACCOUNT: &str = "api-key";
+const API_KEY: &str = "api-key";
+/// Account name for the OAuth token set (JSON).
+const OAUTH: &str = "oauth-tokens";
 /// Backend override: `keyring` or `file`.
 const BACKEND_ENV: &str = "STORYCRAFT_SECRET_BACKEND";
 
@@ -58,18 +61,30 @@ impl Backend {
     /// directory, and saying otherwise would mislead.
     #[must_use]
     pub const fn label(self) -> &'static str {
-        match (self, cfg!(target_os = "android")) {
-            (Self::Keyring, _) => "the system keyring",
-            (Self::File, true) => "app-private storage (Android sandbox)",
-            (Self::File, false) => "a local file, mode 0600 (no keyring on this machine)",
+        if cfg!(target_os = "android") {
+            match self {
+                Self::Keyring => "the system keyring",
+                Self::File => "app-private storage (Android sandbox)",
+            }
+        } else if cfg!(windows) {
+            match self {
+                Self::Keyring => "Windows Credential Manager",
+                Self::File => "a file in your user profile (Credential Manager unavailable)",
+            }
+        } else {
+            match self {
+                Self::Keyring => "the system keyring",
+                Self::File => "a local file, mode 0600 (no keyring on this machine)",
+            }
         }
     }
 }
 
-/// Reads and writes the provider API key.
+/// Reads and writes one secret: the provider API key or the OAuth tokens.
 #[derive(Debug, Clone)]
 pub struct SecretStore {
     backend: Backend,
+    account: &'static str,
     path: PathBuf,
 }
 
@@ -80,15 +95,32 @@ impl SecretStore {
     ///
     /// Returns [`AppError`] when the app config directory cannot be resolved.
     pub fn open(app: &AppHandle) -> Result<Self, AppError> {
+        Ok(Self::with(API_KEY, paths::secret_file(app)?))
+    }
+
+    /// Open the store for the xAI OAuth token set.
+    ///
+    /// Tokens written by older builds to `oauth.json` are still read from that
+    /// file, and the next save moves them into the keyring.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError`] when the app config directory cannot be resolved.
+    pub fn open_oauth(app: &AppHandle) -> Result<Self, AppError> {
+        Ok(Self::with(OAUTH, paths::oauth_file(app)?))
+    }
+
+    fn with(account: &'static str, path: PathBuf) -> Self {
         let backend = match std::env::var(BACKEND_ENV).ok().as_deref() {
             Some("file") => Backend::File,
             Some("keyring") => Backend::Keyring,
             _ => detect_backend(),
         };
-        Ok(Self {
+        Self {
             backend,
-            path: paths::secret_file(app)?,
-        })
+            account,
+            path,
+        }
     }
 
     /// Which backend this store uses.
@@ -105,7 +137,12 @@ impl SecretStore {
     /// "nothing stored".
     pub fn get(&self) -> Result<Option<Secret>, AppError> {
         match self.backend {
-            Backend::Keyring => keyring_get(),
+            // A keyring miss still checks the file: a secret too big for the
+            // keyring, or one an older build wrote there, lives in it.
+            Backend::Keyring => match keyring_get(self.account)? {
+                Some(secret) => Ok(Some(secret)),
+                None => file_get(&self.path),
+            },
             Backend::File => file_get(&self.path),
         }
     }
@@ -126,7 +163,16 @@ impl SecretStore {
     /// Returns [`AppError`] if the backend cannot write.
     pub fn set(&self, value: &str) -> Result<(), AppError> {
         match self.backend {
-            Backend::Keyring => keyring_set(value),
+            Backend::Keyring => match keyring_set(self.account, value) {
+                // Drop any older file copy so it cannot shadow the new value.
+                Ok(()) => file_clear(&self.path),
+                // ponytail: Credential Manager caps a secret at 2560 bytes; a
+                // token set past that goes to the file instead of failing sign-in.
+                Err(err) => {
+                    tracing::warn!(%err, account = self.account, "keyring refused the secret; using the file");
+                    file_set(&self.path, value)
+                }
+            },
             Backend::File => file_set(&self.path, value),
         }
     }
@@ -137,17 +183,43 @@ impl SecretStore {
     ///
     /// Returns [`AppError`] if the backend cannot delete.
     pub fn clear(&self) -> Result<(), AppError> {
-        match self.backend {
-            Backend::Keyring => keyring_clear(),
-            Backend::File => file_clear(&self.path),
+        if self.backend == Backend::Keyring {
+            keyring_clear(self.account)?;
         }
+        file_clear(&self.path)
     }
+}
+
+/// The stored xAI OAuth token set, if signed in.
+///
+/// # Errors
+///
+/// Returns [`AppError`] if the store fails or holds something that is not a
+/// token set.
+pub fn load_tokens(app: &AppHandle) -> Result<Option<TokenSet>, AppError> {
+    let Some(secret) = SecretStore::open_oauth(app)?.get()? else {
+        return Ok(None);
+    };
+    serde_json::from_str(secret.expose())
+        .map(Some)
+        .map_err(|err| AppError::msg(format!("stored OAuth tokens are unreadable: {err}")))
+}
+
+/// Store the xAI OAuth token set.
+///
+/// # Errors
+///
+/// Returns [`AppError`] if the store cannot write.
+pub fn save_tokens(app: &AppHandle, tokens: &TokenSet) -> Result<(), AppError> {
+    let json = serde_json::to_string(tokens)
+        .map_err(|err| AppError::msg(format!("serialize OAuth tokens: {err}")))?;
+    SecretStore::open_oauth(app)?.set(&json)
 }
 
 /// Keyring when it answers, file when it does not.
 #[cfg(not(target_os = "android"))]
 fn detect_backend() -> Backend {
-    match keyring_get() {
+    match keyring_get(API_KEY) {
         Ok(_) => Backend::Keyring,
         Err(err) => {
             tracing::warn!(%err, "no system keyring; storing the API key in a 0600 file");
@@ -163,14 +235,23 @@ fn detect_backend() -> Backend {
 }
 
 #[cfg(not(target_os = "android"))]
-fn entry() -> Result<keyring::Entry, AppError> {
-    keyring::Entry::new(SERVICE, ACCOUNT)
+fn entry(account: &str) -> Result<keyring::Entry, AppError> {
+    keyring::Entry::new(SERVICE, account)
         .map_err(|err| AppError::msg(format!("keyring unavailable: {err}")))
 }
 
 #[cfg(not(target_os = "android"))]
-fn keyring_get() -> Result<Option<Secret>, AppError> {
-    match entry()?.get_password() {
+fn keyring_get(account: &str) -> Result<Option<Secret>, AppError> {
+    // Tokens go in as raw UTF-8 bytes: Windows stores a "password" as UTF-16,
+    // which halves the room a token set gets.
+    let read = if account == OAUTH {
+        entry(account)?
+            .get_secret()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        entry(account)?.get_password()
+    };
+    match read {
         Ok(secret) if secret.trim().is_empty() => Ok(None),
         Ok(secret) => Ok(Some(Secret::new(secret))),
         Err(keyring::Error::NoEntry) => Ok(None),
@@ -179,15 +260,19 @@ fn keyring_get() -> Result<Option<Secret>, AppError> {
 }
 
 #[cfg(not(target_os = "android"))]
-fn keyring_set(value: &str) -> Result<(), AppError> {
-    entry()?
-        .set_password(value)
-        .map_err(|err| AppError::msg(format!("keyring write failed: {err}")))
+fn keyring_set(account: &str, value: &str) -> Result<(), AppError> {
+    let entry = entry(account)?;
+    if account == OAUTH {
+        entry.set_secret(value.as_bytes())
+    } else {
+        entry.set_password(value)
+    }
+    .map_err(|err| AppError::msg(format!("keyring write failed: {err}")))
 }
 
 #[cfg(not(target_os = "android"))]
-fn keyring_clear() -> Result<(), AppError> {
-    match entry()?.delete_credential() {
+fn keyring_clear(account: &str) -> Result<(), AppError> {
+    match entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(err) => Err(AppError::msg(format!("keyring delete failed: {err}"))),
     }
@@ -204,17 +289,17 @@ fn no_keyring() -> AppError {
 }
 
 #[cfg(target_os = "android")]
-fn keyring_get() -> Result<Option<Secret>, AppError> {
+fn keyring_get(_account: &str) -> Result<Option<Secret>, AppError> {
     Err(no_keyring())
 }
 
 #[cfg(target_os = "android")]
-fn keyring_set(_value: &str) -> Result<(), AppError> {
+fn keyring_set(_account: &str, _value: &str) -> Result<(), AppError> {
     Err(no_keyring())
 }
 
 #[cfg(target_os = "android")]
-fn keyring_clear() -> Result<(), AppError> {
+fn keyring_clear(_account: &str) -> Result<(), AppError> {
     Err(no_keyring())
 }
 
@@ -255,6 +340,7 @@ impl SecretStore {
     pub(crate) fn for_test(path: PathBuf) -> Self {
         Self {
             backend: Backend::File,
+            account: API_KEY,
             path,
         }
     }

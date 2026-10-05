@@ -5,7 +5,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use storycraft_auth::{DeviceAuth, OAuthConfig, TokenStore};
+use storycraft_auth::{DeviceAuth, OAuthConfig};
 use storycraft_core::{
     Job, JobStore, Mode, StatusSnapshot, export_zip, find_chapter_prose, infer_chapter,
     unified_diff, validate_preview,
@@ -14,7 +14,6 @@ use storycraft_llm::CancellationToken;
 use storycraft_tools::{BurstinessReport, GenerateOpts};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_opener::OpenerExt;
 use walkdir::WalkDir;
 
 use crate::error::AppError;
@@ -268,7 +267,24 @@ pub fn save_job(project: String, id: String) -> Result<Option<String>, AppError>
     let preview = store.read_preview(&id)?;
     validate_preview(&job.skill, &preview)?;
     let dest = store.commit(&mut job)?;
-    Ok(dest.map(|path| path.display().to_string()))
+    // A bundle writes many files; name them rather than the folder they share.
+    if matches!(
+        storycraft_core::skill_output(&job.skill),
+        storycraft_core::SkillOutput::Bundle | storycraft_core::SkillOutput::Files(_)
+    ) {
+        let docs = storycraft_core::parse_storybible(&preview)?;
+        let names: Vec<&str> = docs.iter().map(|doc| doc.path.as_str()).collect();
+        return Ok(Some(match names.as_slice() {
+            [one] => (*one).to_owned(),
+            [first, second] => format!("{first} and {second}"),
+            [first, rest @ ..] => {
+                format!("{} files ({first} and {} more)", names.len(), rest.len())
+            }
+            [] => "no files".to_owned(),
+        }));
+    }
+    // Rebuilt from components: `root.join("Wiki/Style/x.md")` keeps the `/`s on Windows.
+    Ok(dest.map(|path| path.components().collect::<PathBuf>().display().to_string()))
 }
 
 #[tauri::command]
@@ -474,7 +490,7 @@ pub async fn auth_login(
         .verification_uri_complete
         .as_deref()
         .unwrap_or(&pending.verification_uri);
-    let _ = app.opener().open_url(url, None::<&str>);
+    crate::android::open_auth_url(&app, url);
     let mut slot = state
         .pending_device
         .lock()
@@ -500,14 +516,12 @@ pub async fn auth_poll(
     };
     let auth = DeviceAuth::new(OAuthConfig::default())?;
     let tokens = auth.poll_token(&pending, &CancellationToken::new()).await?;
-    TokenStore::new(paths::oauth_file(&app)?).save(&tokens)?;
-    Ok(())
+    crate::secrets::save_tokens(&app, &tokens)
 }
 
 #[tauri::command]
 pub fn auth_status(app: AppHandle) -> Result<String, AppError> {
-    let store = TokenStore::new(paths::oauth_file(&app)?);
-    match store.load()? {
+    match crate::secrets::load_tokens(&app)? {
         None => Ok("signed-out".into()),
         Some(tokens) if tokens.needs_refresh() => Ok("needs-refresh".into()),
         Some(_) => Ok("signed-in".into()),
@@ -516,6 +530,5 @@ pub fn auth_status(app: AppHandle) -> Result<String, AppError> {
 
 #[tauri::command]
 pub fn auth_logout(app: AppHandle) -> Result<(), AppError> {
-    TokenStore::new(paths::oauth_file(&app)?).clear()?;
-    Ok(())
+    SecretStore::open_oauth(&app)?.clear()
 }
